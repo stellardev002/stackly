@@ -4,6 +4,8 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { fromStroops } from "@repo/stellar/format";
 import { utcDateTime, utcMonthDay } from "@/lib/format";
 
+const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+
 interface Point {
 	at: string;
 	cumulative: string;
@@ -39,7 +41,7 @@ export function CumulativeChart({ series, unit = "XLM" }: { series: Point[]; uni
 						tickMargin={10}
 						interval="preserveStartEnd"
 					/>
-					<YAxis ticks={ticks} domain={[0, ticks.at(-1) ?? max]} tick={{ fill: "#a59a9c", fontSize: 11 }} axisLine={false} tickLine={false} />
+					<YAxis ticks={ticks} domain={[0, ticks.at(-1) ?? max]} tickFormatter={(v: number) => compact.format(v)} tick={{ fill: "#a59a9c", fontSize: 11 }} axisLine={false} tickLine={false} />
 					<Tooltip
 						cursor={{ stroke: "#ffced4" }}
 						contentStyle={{ borderRadius: 14, border: "1px solid #ebe5e6", fontFamily: "inherit", fontSize: 13, color: "#270c0f" }}

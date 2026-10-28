@@ -59,7 +59,7 @@ function DashboardBackdrop() {
 	return (
 		<div aria-hidden className="pointer-events-none blur-[6px] select-none">
 			<div className="mt-10 h-14 w-64 rounded-full bg-[#e9e3e4]" />
-			<div className="mt-3 h-4 w-80 rounded-full bg-[#efeaeb]" />
+			<div className="mt-3 h-4 w-full max-w-80 rounded-full bg-[#efeaeb]" />
 			<div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 				{[0, 1, 2, 3].map((i) => (
 					<div key={i} className="h-[156px] rounded-card bg-night" />

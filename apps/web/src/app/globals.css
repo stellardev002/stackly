@@ -3,3 +3,8 @@
 /* Let Tailwind scan the shared UI package for the utility classes it uses,
    since those components live in a separate workspace package. */
 @source "../../../../packages/ui/src/**/*.{ts,tsx}";
+
+/* WalletConnect's QR modal mounts on <body> while the Radix connect dialog has set body pointer-events: none. */
+wcm-modal {
+	pointer-events: auto;
+}

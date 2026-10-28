@@ -94,13 +94,19 @@
 	* {
 		@apply border-border outline-ring/60;
 	}
+	/* No sideways panning on phones. iOS Safari ignores `overflow-x: hidden` on <body> alone; `clip` on both
+	   (with `hidden` as the fallback) holds, and unlike `hidden` it doesn't break `position: sticky`. */
+	html,
+	body {
+		overflow-x: hidden;
+		overflow-x: clip;
+	}
 	html {
 		scroll-behavior: smooth;
 		-webkit-text-size-adjust: 100%;
 	}
 	body {
 		@apply bg-page font-sans text-ink antialiased;
-		overflow-x: hidden;
 		font-feature-settings: "kern", "liga", "tnum" 0;
 	}
 	:focus-visible {

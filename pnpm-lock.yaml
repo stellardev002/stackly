@@ -282,6 +282,12 @@ importers:
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      '@walletconnect/modal':
+        specifier: 2.6.2
+        version: 2.6.2(@types/react@19.3.0)(react@19.3.1)
+      '@walletconnect/sign-client':
+        specifier: 2.11.2
+        version: 2.11.2(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       axios:
         specifier: ^1.20.0
         version: 1.20.0(debug@4.4.3(supports-color@7.2.0))(supports-color@7.2.0)

@@ -97,7 +97,7 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 				showCloseButton={false}
 				onEscapeKeyDown={(e) => e.preventDefault()}
 				onPointerDownOutside={(e) => e.preventDefault()}
-				className="max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-panel border-0 bg-white p-6 shadow-[0_32px_80px_-24px_rgba(14,4,5,0.45)] sm:max-w-[690px] sm:p-8"
+				className="max-h-[calc(100dvh-2rem)] gap-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-panel border-0 bg-white p-5 shadow-[0_32px_80px_-24px_rgba(14,4,5,0.45)] sm:max-w-[690px] sm:p-8"
 			>
 				<div className="flex flex-wrap items-start justify-between gap-3">
 					<DialogTitle className="text-[34px] leading-[1.05] font-normal tracking-[-0.05em] text-ink sm:text-[44px]">{title}</DialogTitle>
@@ -167,7 +167,7 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 										<div
 											key={wallet.id}
 											className={cn(
-												"animate-rise flex w-full items-center gap-4 rounded-card border px-5 py-4 transition-colors duration-200",
+												"animate-rise flex w-full min-w-0 items-center gap-3 rounded-card border px-4 py-4 transition-colors sm:gap-4 sm:px-5 duration-200",
 												selected === wallet.id && wallet.available ? "border-transparent bg-blush" : "border-line bg-white",
 												wallet.available && "hover:border-rose",
 												busy && selected !== wallet.id && "opacity-50",
@@ -180,11 +180,11 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 												aria-checked={selected === wallet.id}
 												disabled={busy || !wallet.available}
 												onClick={() => setSelected(wallet.id)}
-												className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-coral/40 disabled:cursor-default"
+												className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left sm:gap-4 outline-none focus-visible:ring-[3px] focus-visible:ring-coral/40 disabled:cursor-default"
 											>
 												<WalletIcon id={wallet.id} />
 												<span className="min-w-0 flex-1">
-													<span className="block text-xl leading-6 tracking-[-0.02em]">{wallet.name}</span>
+													<span className="block text-lg leading-6 tracking-[-0.02em] sm:text-xl">{wallet.name}</span>
 													<span className="caption block">
 														{wallet.kind}
 														{wallet.recommended && " · Recommended"}
@@ -229,12 +229,17 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 									disabled={!resume && !current?.available}
 									className="w-fit"
 								>
-									{resume || "address" in phase ? <KeyRound /> : null}
-									{resume || phase.name === "rejected" || phase.name === "failed" ? `Sign in with ${walletName}` : `Connect ${walletName}`}
+									{resume || ("address" in phase && phase.address) ? <KeyRound /> : null}
+									{resume || ((phase.name === "rejected" || phase.name === "failed") && phase.address) ? `Sign in with ${walletName}` : `Connect ${walletName}`}
 								</Button>
 							)}
 							{selected === "freighter" && !resume && phase.name === "idle" && current?.available && (
 								<p className="caption">Set Freighter to Testnet first (Freighter → Settings → Network). You&apos;ll be asked to approve access, then sign a free sign-in message.</p>
+							)}
+							{selected === "wallet_connect" && !resume && phase.name === "idle" && current?.available && (
+								<p className="caption">
+									Set the Freighter app to Testnet first. On a computer, scan the QR code with Freighter Mobile; on your phone, pick Freighter. Approve the connection, then sign a free sign-in message.
+								</p>
 							)}
 						</div>
 					</>
