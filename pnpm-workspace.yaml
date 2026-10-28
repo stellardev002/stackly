@@ -8,6 +8,7 @@ allowBuilds:
   unrs-resolver: false
   # Native add-ons pulled in by Stellar Wallets Kit (hardware wallets, WalletConnect). Each has a JS
   # fallback or is Node-only; the browser app doesn't need them compiled.
+  '@reown/appkit': false
   blake-hash: false
   bufferutil: false
   protobufjs: false

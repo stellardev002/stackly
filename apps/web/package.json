@@ -11,7 +11,7 @@
     "e2e:live": "tsx scripts/e2e-live.mts"
   },
   "dependencies": {
-    "@creit.tech/stellar-wallets-kit": "^1.7.0",
+    "@creit.tech/stellar-wallets-kit": "^2.7.1",
     "@fontsource/source-sans-3": "^5.3.1",
     "@hookform/resolvers": "^5.9.1",
     "@repo/stellar": "workspace:*",
@@ -20,8 +20,6 @@
     "@tanstack/react-query": "^5.104.4",
     "@tanstack/react-query-devtools": "^5.104.4",
     "@tanstack/react-table": "^8.21.3",
-    "@walletconnect/modal": "2.6.2",
-    "@walletconnect/sign-client": "2.11.2",
     "axios": "^1.20.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.52.0",

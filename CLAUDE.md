@@ -64,8 +64,9 @@ Query, zustand, react-hook-form + zod 4, axios, lucide, sonner, recharts 2, `@st
   withdraw = `POST …/withdrawals` → sign + submit → ledger sync; make up a missed purchase = `POST …/retry-missed` +
   a fresh signed batch; USDC trustline = `changeTrust` signed by the wallet. Horizon result codes become readable
   errors (`TrustlineMissingError`, `InsufficientFundsError`). Mutations never auto-retry.
-- **Wallet** (`features/wallet/kit.ts`): Stellar Wallets Kit, lazy-imported, Testnet only (refuses another network):
-  Freighter, xBull, Albedo. `walletSigner(address)` is the `Signer` for flows. Never request, store, log or render a
+- **Wallet** (`features/wallet/kit.ts`): Stellar Wallets Kit v2, lazy-imported, Testnet only (refuses another network):
+  Freighter, Freighter Mobile (WalletConnect → Reown AppKit, project id `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`; needs
+  HTTPS), xBull. Every wallet must support `signMessage` (sign-in), so no Albedo / Rabet. `walletSigner(address)` is the `Signer` for flows. Never request, store, log or render a
   secret key.
 - `useVaultTx()` stages: `signing → submitting → confirmed`, or `rejected` (declined, nothing sent) / `failed`; it
   invalidates every affected query. Actions without a signature call `onSigned` immediately.
