@@ -26,6 +26,15 @@ supabase/           Indexer database migrations
 `pnpm dev` (all) · `pnpm build` · `pnpm check-types` · `pnpm lint` (packages and keeper: `--max-warnings 0`) ·
 `pnpm format` (prettier: tabs, width 130) · `pnpm contracts:test` · `pnpm contracts:build`.
 
+## Deployment (Vercel Services)
+
+One Vercel project, routed by the root `vercel.json`: `/app` and `/app/*` → `apps/web`, everything else →
+`apps/landing`. Dev host for now: https://stackly-topaz.vercel.app (landing) · …/app (the app). `apps/web` sets
+`basePath: "/app"` on every Vercel build (`VERCEL` is set); set `APP_BASE_PATH=""` in the Vercel project once the app
+has its own domain. Landing links into the app with plain `<a>`s to `APP_URL` (`/app` on Vercel) and redirects bare
+app paths (`/overview`, `/vaults/*`…) to `/app/…`. Turborepo only passes declared env vars to builds: keep `VERCEL`
+and `APP_BASE_PATH` in `turbo.json`.
+
 ## Stack
 
 Next.js 16 (App Router, React Compiler, Turbopack), React 19, Tailwind v4, shadcn/ui (Radix) in `@repo/ui`, TanStack

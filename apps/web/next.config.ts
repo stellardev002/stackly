@@ -1,12 +1,13 @@
 import type { NextConfig } from "next";
 
 /**
- * Production serves this app at the root of its own host, and dev at the root of localhost:3000.
- * Previews have a single host shared by every service (repo root `vercel.json`), so there it lives
- * under `/app`. Next prefixes pages, <Link>s, static imports and `/_next` assets with it; anything
- * that builds a URL by hand reads NEXT_PUBLIC_BASE_PATH.
+ * On Vercel every deployment (production and previews) is one host shared by the services in the repo root
+ * `vercel.json`: landing at `/`, this app under `/app`. Dev serves it at the root of localhost:3000. Once the app
+ * gets its own domain, set APP_BASE_PATH="" in the Vercel project to serve it at the root again. Next prefixes
+ * pages, <Link>s, static imports and `/_next` assets with it; anything that builds a URL by hand reads
+ * NEXT_PUBLIC_BASE_PATH.
  */
-const BASE_PATH = process.env.VERCEL_ENV === "preview" ? "/app" : "";
+const BASE_PATH = process.env.APP_BASE_PATH ?? (process.env.VERCEL ? "/app" : "");
 
 /**
  * The read API (positions, executions, history, portfolio) is served by this app's own route handlers
