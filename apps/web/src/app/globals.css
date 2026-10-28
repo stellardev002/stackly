@@ -4,7 +4,8 @@
    since those components live in a separate workspace package. */
 @source "../../../../packages/ui/src/**/*.{ts,tsx}";
 
-/* WalletConnect's modal (Reown AppKit) mounts on <body> while the Radix connect dialog has set body pointer-events: none. */
-w3m-modal {
+/* WalletConnect's modal (Reown AppKit) mounts on <body> while the Radix connect dialog has set body pointer-events: none.
+   Only while it's open: closed, it stays in the DOM as a full-screen layer and would swallow every click. */
+w3m-modal.open {
 	pointer-events: auto;
 }
