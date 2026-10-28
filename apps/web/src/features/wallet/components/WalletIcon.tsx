@@ -20,7 +20,7 @@ export function WalletIcon({ id, className }: { id: string; className?: string }
 	}
 	return (
 		<span aria-hidden className={cn("flex size-10 shrink-0 items-center justify-center rounded-full bg-night text-sm tracking-[-0.04em] text-white", className)}>
-			xB
+			{id === "wallet_connect" ? "WC" : "xB"}
 		</span>
 	);
 }

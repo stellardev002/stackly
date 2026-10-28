@@ -5,12 +5,15 @@ import { NETWORK_PASSPHRASE } from "@/lib/stellar/config";
 import type { Signer } from "@/lib/api/flows";
 
 /**
- * The one seam to the user's wallet (Stellar Wallets Kit: Freighter, xBull, Albedo), on Stellar Testnet. The kit
+ * The one seam to the user's wallet (Stellar Wallets Kit: Freighter, xBull, Albedo, WalletConnect), on Stellar Testnet. The kit
  * touches `window` when it loads, so it is imported lazily, in the browser only. Stackly asks the wallet for its
  * address, a sign-in message signature and transaction signatures; it never handles keys.
  */
 
-export type WalletId = "freighter" | "xbull" | "albedo";
+export type WalletId = "freighter" | "xbull" | "albedo" | "wallet_connect";
+
+/** WalletConnect (Reown) project id. It's public (it ships in the bundle); override per environment if needed. */
+const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "b8cc56756132b11f2077932ac3d6f807";
 
 export interface WalletOption {
 	id: WalletId;
@@ -24,20 +27,40 @@ const OPTIONS: Omit<WalletOption, "available">[] = [
 	{ id: "freighter", name: "Freighter", kind: "Browser extension · Testnet", recommended: true },
 	{ id: "xbull", name: "xBull", kind: "Browser wallet · Testnet" },
 	{ id: "albedo", name: "Albedo", kind: "Web wallet · Testnet" },
+	{ id: "wallet_connect", name: "WalletConnect", kind: "Mobile wallet via QR · Testnet" },
 ];
 
 export const INSTALL_URL: Record<WalletId, string> = {
 	freighter: "https://www.freighter.app/",
 	xbull: "https://xbull.app/",
 	albedo: "https://albedo.link/",
+	wallet_connect: "https://walletconnect.network/",
 };
 
 let kitPromise: Promise<StellarWalletsKit> | null = null;
 
 function getKit() {
-	kitPromise ??= import("@creit.tech/stellar-wallets-kit").then(
-		({ StellarWalletsKit, WalletNetwork, allowAllModules, FREIGHTER_ID }) =>
-			new StellarWalletsKit({ network: WalletNetwork.TESTNET, selectedWalletId: FREIGHTER_ID, modules: allowAllModules() }),
+	kitPromise ??= Promise.all([
+		import("@creit.tech/stellar-wallets-kit"),
+		import("@creit.tech/stellar-wallets-kit/modules/walletconnect.module"),
+	]).then(
+		([{ StellarWalletsKit, WalletNetwork, allowAllModules, FREIGHTER_ID }, { WalletConnectModule, WalletConnectAllowedMethods }]) =>
+			new StellarWalletsKit({
+				network: WalletNetwork.TESTNET,
+				selectedWalletId: FREIGHTER_ID,
+				modules: [
+					...allowAllModules(),
+					new WalletConnectModule({
+						url: window.location.origin,
+						projectId: WALLETCONNECT_PROJECT_ID,
+						method: WalletConnectAllowedMethods.SIGN,
+						name: "Stackly",
+						description: "Non-custodial dollar-cost averaging on Stellar",
+						icons: [`${window.location.origin}/favicon.ico`],
+						network: WalletNetwork.TESTNET,
+					}),
+				],
+			}),
 	);
 	return kitPromise;
 }

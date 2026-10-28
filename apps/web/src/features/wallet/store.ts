@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 interface WalletState {
 	/** The connected Stellar account (G…). Never a secret: Stackly never sees private keys (PRD §17). */
 	address: string | null;
-	/** Stellar Wallets Kit module id ("freighter", "xbull", "albedo"). */
+	/** Stellar Wallets Kit module id ("freighter", "xbull", "albedo", "wallet_connect"). */
 	walletId: string | null;
 	setConnected: (address: string, walletId: string) => void;
 	disconnect: () => void;
