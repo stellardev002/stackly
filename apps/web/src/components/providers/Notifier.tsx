@@ -4,76 +4,37 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@repo/ui/sonner";
-import { money } from "@/lib/format";
 import { vaultRoutes } from "@/lib/routes";
-import { usePositions, useRecentExecutions } from "@/features/vaults/hooks";
-import { fundedPurchases } from "@/features/vaults/status";
-import { usePreferences } from "@/features/settings/store";
+import { useNotifications } from "@/features/settings/hooks";
+
+const ATTENTION = new Set(["execution_failed", "low_balance", "authorizations_low"]);
 
 /**
- * In-app notifications (Settings → Notifications). Watches executions and positions and toasts when a
- * purchase completes, needs attention, or a vault is about to run dry. Polls quietly in the background.
+ * Toasts new notifications from the backend inbox while the app is open (muting lives in Settings, server-side).
+ * Anything that arrives also means balances moved, so the money views are refreshed.
  */
 export function Notifier() {
 	const router = useRouter();
 	const queryClient = useQueryClient();
-	const { notifyPurchases, notifyAttention, notifyFunding } = usePreferences();
-	const { data: executions } = useRecentExecutions(10);
-	const { data: positions } = usePositions();
-	const seen = useRef<Map<string, string> | null>(null);
-	const warnedLow = useRef(new Set<string>());
-
-	// Keep the keeper's work visible: refresh in the background every few seconds.
-	useEffect(() => {
-		const id = setInterval(() => {
-			for (const key of ["executions", "positions", "clock"]) void queryClient.invalidateQueries({ queryKey: [key] });
-		}, 6_000);
-		return () => clearInterval(id);
-	}, [queryClient]);
+	const { data } = useNotifications();
+	const seen = useRef<Set<string> | null>(null);
 
 	useEffect(() => {
-		if (!executions) return;
-		const previous = seen.current;
-		seen.current = new Map(executions.map((e) => [e.id, e.status]));
-		if (!previous) return; // first load: don't announce history
-		if (executions.some((e) => previous.get(e.id) !== e.status)) {
-			// A purchase moved: balances, history and the portfolio changed with it.
-			for (const key of ["position", "portfolio", "transactions", "execution"]) void queryClient.invalidateQueries({ queryKey: [key] });
+		if (!data) return;
+		if (!seen.current) {
+			seen.current = new Set(data.map((n) => n.id)); // first load: don't announce what's already there
+			return;
 		}
-		for (const e of executions) {
-			const before = previous.get(e.id);
-			if (before === e.status) continue;
-			const position = positions?.find((p) => p.id === e.position_id);
-			const open = { label: "View", onClick: () => router.push(vaultRoutes.EXECUTION(e.position_id, e.id)) };
-			if (e.status === "completed" && notifyPurchases && e.received_amount) {
-				toast.success(`Purchase completed: ${money(e.source_amount, position?.source_asset ?? "USDC")} → ${money(e.received_amount, position?.target_asset ?? "XLM")}`, {
-					description: `${position?.name ?? e.position_id} · ${e.id}`,
-					action: open,
-				});
-			} else if ((e.status === "failed" || e.status === "skipped") && notifyAttention) {
-				toast.error(e.status === "failed" ? "A purchase didn't execute" : "A purchase was skipped", {
-					description: `${e.failure_reason ?? ""} Your balances are unchanged.`,
-					action: open,
-				});
-			} else if (e.status === "submitted" && !before && notifyPurchases) {
-				toast.loading(`Purchase submitted for ${position?.name ?? e.position_id}`, { id: `sub-${e.id}`, duration: 4_000 });
-			}
+		const fresh = data.filter((n) => !seen.current!.has(n.id) && !n.readAt);
+		for (const n of data) seen.current.add(n.id);
+		if (!fresh.length) return;
+		for (const key of ["positions", "position", "executions", "portfolio", "transactions", "wallet"]) void queryClient.invalidateQueries({ queryKey: [key] });
+		for (const n of fresh.slice(0, 3)) {
+			const action = n.positionId ? { label: "View", onClick: () => router.push(vaultRoutes.VAULT(n.positionId!)) } : undefined;
+			if (ATTENTION.has(n.event)) toast.warning(n.message, { action });
+			else toast.success(n.message, { action });
 		}
-	}, [executions, positions, notifyPurchases, notifyAttention, router, queryClient]);
-
-	useEffect(() => {
-		if (!positions || !notifyFunding) return;
-		for (const p of positions) {
-			if (p.status !== "active" || warnedLow.current.has(p.id)) continue;
-			if (fundedPurchases(p) < 2) {
-				warnedLow.current.add(p.id);
-				toast.warning(`${p.name} has ${fundedPurchases(p) === 0 ? "no" : "one"} funded purchase left`, {
-					description: "Deposit more USDC to keep the schedule running.",
-					action: { label: "Deposit", onClick: () => router.push(vaultRoutes.DEPOSIT(p.id)) },
-				});
-			}
-		}
-	}, [positions, notifyFunding, router]);
+	}, [data, queryClient, router]);
 
 	return null;
 }

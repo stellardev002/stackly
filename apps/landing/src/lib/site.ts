@@ -11,11 +11,14 @@ const THEME_COLOR = "#ffffff";
 const TWITTER_HANDLE = "@stackly";
 
 /**
- * Absolute URL of this site, for `metadataBase` / canonical / robots / sitemap: NEXT_PUBLIC_SITE_URL → the
- * deployment URL on Vercel → localhost in dev.
+ * Absolute URL of this site, for `metadataBase` / canonical / robots / sitemap: NEXT_PUBLIC_SITE_URL →
+ * https://usestackly.app in production → the deployment URL on Vercel previews → localhost in dev.
  */
 const SITE_URL = new URL(
-	process.env.NEXT_PUBLIC_SITE_URL ?? (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ?? "http://localhost:3002",
+	process.env.NEXT_PUBLIC_SITE_URL ??
+		(process.env.NEXT_PUBLIC_VERCEL_ENV === "production" ? "https://usestackly.app" : undefined) ??
+		(process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ??
+		"http://localhost:3002",
 );
 
 /**

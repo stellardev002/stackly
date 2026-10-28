@@ -1,18 +1,52 @@
-import axios, { type AxiosAdapter } from "axios";
-import { USE_MOCK_API } from "@/lib/api/source";
-
-// The app's own /api/v1 route handlers, or a direct URL (next.config.ts sets NEXT_PUBLIC_API_URL).
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
-/** In mock mode every request is answered in the browser (lib/api/source.ts); loaded only then. */
-const mockAdapter: AxiosAdapter = async (config) => (await import("@repo/mock-api/adapter")).mockAdapter(config);
+import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios";
+import { refresh } from "@/lib/api/auth";
+import { useSession } from "@/features/auth/store";
 
 /**
- * No auth header: reads are public by owner address (the chain is public anyway), and every write is a
- * contract call the user signs in their wallet, never an API request.
+ * The Stackly backend client. The browser calls this app's own `/api/v1` (proxied to https://api.usestackly.app/v1
+ * by next.config.ts), so CORS never applies. Requests carry the wallet's access token; a 401 triggers one shared
+ * refresh (refresh tokens are single-use, so parallel requests must not each refresh), then the request is retried
+ * once. If the refresh fails, the session is cleared and the app asks the wallet to sign in again.
  */
-export const api = axios.create({
-	baseURL: BASE_URL,
-	headers: { "Content-Type": "application/json" },
-	...(USE_MOCK_API ? { adapter: mockAdapter } : {}),
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+
+/** Unauthenticated calls (challenge, login, refresh). */
+export const publicApi = axios.create({ baseURL: BASE_URL, headers: { "Content-Type": "application/json" } });
+
+export const api = axios.create({ baseURL: BASE_URL, headers: { "Content-Type": "application/json" } });
+
+api.interceptors.request.use((config) => {
+	const token = useSession.getState().accessToken;
+	if (token) config.headers.set("Authorization", `Bearer ${token}`);
+	return config;
+});
+
+let refreshing: Promise<string | null> | null = null;
+
+function refreshOnce(): Promise<string | null> {
+	refreshing ??= (async () => {
+		const { address, refreshToken, setTokens, clear } = useSession.getState();
+		if (!address || !refreshToken) return null;
+		try {
+			const tokens = await refresh(publicApi, refreshToken);
+			setTokens(address, tokens);
+			return tokens.accessToken;
+		} catch {
+			clear();
+			return null;
+		}
+	})().finally(() => {
+		refreshing = null;
+	});
+	return refreshing;
+}
+
+api.interceptors.response.use(undefined, async (error: AxiosError) => {
+	const config = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
+	if (error.response?.status !== 401 || !config || config._retried) throw error;
+	const token = await refreshOnce();
+	if (!token) throw error;
+	config._retried = true;
+	config.headers.set("Authorization", `Bearer ${token}`);
+	return api(config);
 });

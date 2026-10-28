@@ -2,28 +2,36 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { StackLoader } from "@repo/ui/brand";
-import { USE_MOCK_API } from "@/lib/api/source";
-import { isRealWallet, restoreWallet } from "@/features/wallet/kit";
+import { useSession } from "@/features/auth/store";
+import { restoreWallet, type WalletId } from "@/features/wallet/kit";
 import { useWalletStore } from "@/features/wallet/store";
 import { ConnectModal } from "@/features/wallet/components/ConnectModal";
 
-const subscribe = (onChange: () => void) => useWalletStore.persist.onFinishHydration(onChange);
-const hasHydrated = () => useWalletStore.persist.hasHydrated();
+const subscribe = (onChange: () => void) => {
+	const a = useWalletStore.persist.onFinishHydration(onChange);
+	const b = useSession.persist.onFinishHydration(onChange);
+	return () => {
+		a();
+		b();
+	};
+};
+const hasHydrated = () => useWalletStore.persist.hasHydrated() && useSession.persist.hasHydrated();
 
 /**
- * The wallet is the only "account". Until one is connected, the dashboard sits blurred behind the connect
- * modal (Figma Screen 2); after that the app renders normally.
+ * The wallet is the only "account": the app needs a connected wallet and a backend session signed by it. Until
+ * then the dashboard sits blurred behind the connect modal (Figma Screen 2). When the session expires (refresh
+ * failed) but the wallet is still connected, the modal only asks the wallet to sign in again.
  */
 export function WalletGate({ children }: { children: React.ReactNode }) {
 	const hydrated = useSyncExternalStore(subscribe, hasHydrated, () => false);
 	const address = useWalletStore((s) => s.address);
 	const walletId = useWalletStore((s) => s.walletId);
+	const sessionAddress = useSession((s) => s.address);
+	const sessionToken = useSession((s) => s.accessToken ?? s.refreshToken);
 
 	useEffect(() => {
 		if (walletId) void restoreWallet(walletId);
-		// Mock data: make sure a real wallet's address still has its demo account (e.g. after "Reset demo data").
-		if (USE_MOCK_API && address && isRealWallet(walletId)) void import("@repo/mock-api/sim").then((sim) => sim.ensureWallet(address, walletId!));
-	}, [walletId, address]);
+	}, [walletId]);
 
 	if (!hydrated) {
 		return (
@@ -33,11 +41,12 @@ export function WalletGate({ children }: { children: React.ReactNode }) {
 		);
 	}
 
-	if (!address) {
+	const signedIn = !!address && sessionAddress === address && !!sessionToken;
+	if (!signedIn) {
 		return (
 			<>
 				<DashboardBackdrop />
-				<ConnectModal open />
+				<ConnectModal open resume={address && walletId ? { address, walletId: walletId as WalletId } : undefined} />
 			</>
 		);
 	}
@@ -48,7 +57,7 @@ export function WalletGate({ children }: { children: React.ReactNode }) {
 /** A static, blurred dashboard silhouette behind the modal, like the design. */
 function DashboardBackdrop() {
 	return (
-		<div aria-hidden className="app-container pointer-events-none blur-[6px] select-none">
+		<div aria-hidden className="pointer-events-none blur-[6px] select-none">
 			<div className="mt-10 h-14 w-64 rounded-full bg-[#e9e3e4]" />
 			<div className="mt-3 h-4 w-80 rounded-full bg-[#efeaeb]" />
 			<div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

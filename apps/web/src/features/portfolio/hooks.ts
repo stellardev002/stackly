@@ -1,27 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
-import { apiRoutes } from "@/lib/routes";
-import { useWalletStore } from "@/features/wallet/store";
+import { getPortfolio } from "@/lib/api/endpoints";
+import { useSession } from "@/features/auth/store";
+
+export type { Portfolio } from "@/lib/api/adapters";
 
 /**
- * Screen 10. Totals are per asset and never summed across assets; there is no market valuation or P/L
- * until a reliable price source exists (PRD §15). `average_price` comes from executed swaps only.
+ * Screens 3 and 10 (`GET /portfolio` + `GET /dashboard`). Totals are per asset and never summed across assets;
+ * there is no market valuation or P/L. `average_price` comes from completed purchases only.
  */
-export interface Portfolio {
-	total_deposited: string;
-	total_spent: string;
-	source_balance: string;
-	target_balance: string;
-	purchase_count: number;
-	average_price: string | null;
-	series: { at: string; received: string; cumulative: string }[];
-}
-
 export function usePortfolio() {
-	const owner = useWalletStore((s) => s.address);
-	return useQuery({
-		queryKey: ["portfolio", owner],
-		queryFn: async () => (await api.get(apiRoutes.PORTFOLIO, { params: { owner } })).data.data as Portfolio,
-		enabled: !!owner,
-	});
+	const authed = !!useSession((s) => s.accessToken);
+	return useQuery({ queryKey: ["portfolio"], queryFn: () => getPortfolio(api), enabled: authed, refetchInterval: 30_000 });
 }

@@ -14,7 +14,9 @@ interface Point {
  * the target asset only: never a value or a return.
  */
 export function CumulativeChart({ series, unit = "XLM" }: { series: Point[]; unit?: string }) {
-	const data = series.map((p) => ({ t: Date.parse(p.at), v: Number(fromStroops(p.cumulative)) }));
+	const points = series.map((p) => ({ t: Date.parse(p.at), v: Number(fromStroops(p.cumulative)) }));
+	// Start the step from zero a day before the first purchase, so even one purchase draws a step.
+	const data = points.length ? [{ t: points[0]!.t - 86_400_000, v: 0 }, ...points] : points;
 	const max = Math.max(...data.map((d) => d.v), 1);
 	const step = niceStep(max / 4);
 	const ticks = Array.from({ length: Math.ceil(max / step) + 1 }, (_, i) => i * step);

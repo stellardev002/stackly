@@ -4,12 +4,11 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { assetCode } from "@repo/stellar/assets";
 import { Button } from "@repo/ui/button";
 import { Field, PillInput } from "@repo/ui/field";
 import { Chip, DetailRow, Notice, Panel, PanelHeader } from "@repo/ui/surface";
 import { cn } from "@repo/ui/lib/utils";
-import { money, utcDateTime } from "@/lib/format";
+import { money } from "@/lib/format";
 import { vaultRoutes } from "@/lib/routes";
 import { fromStroops, shortKey, toStroops } from "@/lib/stellar/config";
 import { withBasePath } from "@/lib/site";
@@ -23,6 +22,7 @@ import { useWalletStore } from "@/features/wallet/store";
 import { vaultClient } from "@/features/vaults/client";
 import { usePosition, useVaultTx } from "@/features/vaults/hooks";
 import { amountSchema } from "@/features/vaults/schema";
+import { shortId } from "@/features/vaults/status";
 import { VaultNotFound } from "@/features/vaults/components/VaultNotFound";
 
 type Side = "source" | "target";
@@ -38,8 +38,9 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 	const [amount, setAmount] = useState("");
 	const [touched, setTouched] = useState(false);
 	const [reviewing, setReviewing] = useState(false);
+	const [sent, setSent] = useState<{ amount: string; asset: string } | null>(null);
 
-	const header = <PageHeader title="Withdraw funds" subtitle={position.data ? `${position.data.name} · ${position.data.id} · to your connected wallet` : "Move available funds back to your wallet"} />;
+	const header = <PageHeader title="Withdraw funds" subtitle={position.data ? `${position.data.name} · ${shortId(position.data.id)} · to your connected wallet` : "Move available funds back to your wallet"} />;
 
 	if (position.isError) {
 		const notFound = (position.error as { response?: { status?: number } }).response?.status === 404;
@@ -73,19 +74,23 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 
 	const p = position.data;
 	const asset = side === "source" ? p.source_asset : p.target_asset;
-	const code = assetCode(asset);
-	const available = side === "source" ? p.source_balance : p.target_balance;
-	const nothing = BigInt(p.source_balance) === 0n && BigInt(p.target_balance) === 0n;
+	const code = asset;
+	const available = side === "source" ? p.available_source : p.available_target;
+	const nothing = BigInt(p.available_source) === 0n && BigInt(p.available_target) === 0n;
 	const parsed = amountSchema(Number(fromStroops(available)), `Only ${money(available, asset)} is available. Enter ${money(available, asset)} or less.`).safeParse({ amount });
 	const over = touched && !parsed.success && Number(amount) > Number(fromStroops(available));
 	const fieldError = touched && !parsed.success ? parsed.error.issues[0]?.message : undefined;
 	const value = parsed.success ? toStroops(amount) : 0n;
-	const leftUsdc = side === "source" ? BigInt(p.source_balance) - value : BigInt(p.source_balance);
+	const leftUsdc = side === "source" ? BigInt(p.available_source) - value : BigInt(p.available_source);
 	const leftPurchases = leftUsdc / BigInt(p.purchase_amount);
 
 	const confirm = async () => {
-		const res = await tx.run((opts) => vaultClient.withdraw(p.id, side, value.toString(), opts));
-		if (res) toast.success(`Withdrawal confirmed: ${money(value, asset)}`, { description: `Sent to ${owner ? shortKey(owner) : "your wallet"} · ${res.transaction?.id}`, action: explorerAction(res.txHash) });
+		const snapshot = { amount: value.toString(), asset };
+		const res = await tx.run((opts) => vaultClient.withdraw(p.id, side === "source" ? p.source : p.target, value.toString(), opts));
+		if (res) {
+			setSent(snapshot);
+			toast.success(`Withdrawal confirmed: ${money(snapshot.amount, snapshot.asset)}`, { description: `Sent to ${owner ? shortKey(owner) : "your wallet"}.`, action: explorerAction(res.txHash) });
+		}
 	};
 
 	const review = (event: React.FormEvent) => {
@@ -113,7 +118,7 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 						title="Nothing to withdraw yet"
 						action={
 							<Button asChild>
-								<Link href={vaultRoutes.DEPOSIT(p.id, { flow: p.status === "created" })}>Deposit USDC</Link>
+								<Link href={vaultRoutes.DEPOSIT(p.id, { flow: p.status === "pending" })}>Deposit USDC</Link>
 							</Button>
 						}
 					>
@@ -142,8 +147,8 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 						<Panel className="animate-rise flex flex-col gap-6" style={{ "--i": 1 } as React.CSSProperties}>
 							<h2 className="h-card">Choose what to withdraw</h2>
 							<div role="radiogroup" aria-label="Asset to withdraw" className="grid gap-4 sm:grid-cols-2">
-								<AssetCard selected={side === "source"} onSelect={() => choose("source")} label={assetCode(p.source_asset)} amount={money(p.source_balance, p.source_asset)} caption="Available source funds" art="withdraw-usdc" disabled={tx.busy} />
-								<AssetCard selected={side === "target"} onSelect={() => choose("target")} label={assetCode(p.target_asset)} amount={money(p.target_balance, p.target_asset)} caption="Purchased asset balance" art="withdraw-xlm" disabled={tx.busy} />
+								<AssetCard selected={side === "source"} onSelect={() => choose("source")} label={p.source_asset} amount={money(p.available_source, p.source_asset)} caption="Available source funds" art="withdraw-usdc" disabled={tx.busy} />
+								<AssetCard selected={side === "target"} onSelect={() => choose("target")} label={p.target_asset} amount={money(p.available_target, p.target_asset, 4)} caption="Purchased asset balance" art="withdraw-xlm" disabled={tx.busy} />
 							</div>
 							<Field label="Withdrawal amount" htmlFor="amount" error={over ? undefined : fieldError}>
 								<PillInput
@@ -177,7 +182,7 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 							</Field>
 							{over && (
 								<Notice tone="warning" title={`Only ${money(available, asset)} is available`} className="animate-pop">
-									Enter {money(available, asset)} or less.{side === "source" && ` You cannot withdraw funds already spent on ${assetCode(p.target_asset)}.`}
+									Enter {money(available, asset)} or less.{side === "source" && ` You cannot withdraw funds already spent on ${p.target_asset}.`}
 								</Notice>
 							)}
 							<Field label="Receiving wallet" htmlFor="receiver" hint="Withdrawals always go to the wallet that owns the vault.">
@@ -203,16 +208,15 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 								</span>
 								<div>
 									<p className="h-card">Withdrawal confirmed</p>
-									<p className="caption mt-1">{tx.result!.transaction ? utcDateTime(tx.result!.transaction.created_at) : "Just now"}</p>
+									<p className="caption mt-1">Confirmed on Stellar Testnet and booked</p>
 								</div>
 							</div>
-							<p className="stat-value mt-6">{money(tx.result!.transaction?.amount ?? value, asset)}</p>
+							<p className="stat-value mt-6">{money(sent?.amount ?? value, sent?.asset ?? asset)}</p>
 							<dl className="mt-6 flex flex-col gap-3">
 								<DetailRow label="Sent to" value={<span className="font-mono">{owner ? shortKey(owner) : "—"}</span>} />
-								<DetailRow label={`Vault ${assetCode(p.source_asset)}`} value={money(tx.result!.position.source_balance, p.source_asset)} />
-								<DetailRow label={`Vault ${assetCode(p.target_asset)}`} value={money(tx.result!.position.target_balance, p.target_asset)} />
-								<DetailRow label="Transaction" value={tx.result!.transaction?.id ?? "—"} />
-								{tx.result!.transaction?.tx_hash && <DetailRow label="Hash" value={<HashText hash={tx.result!.transaction.tx_hash} />} />}
+								<DetailRow label={`Vault ${p.source_asset}`} value={money(p.available_source, p.source_asset)} />
+								<DetailRow label={`Vault ${p.target_asset}`} value={money(p.available_target, p.target_asset, 4)} />
+								{tx.result!.txHash && <DetailRow label="Hash" value={<HashText hash={tx.result!.txHash} />} />}
 							</dl>
 							<div className="mt-6 flex flex-wrap gap-3">
 								<Button asChild>
@@ -220,7 +224,7 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 										Back to position <ArrowRight />
 									</Link>
 								</Button>
-								<ExplorerButton hash={tx.result!.transaction?.tx_hash ?? null} />
+								<ExplorerButton hash={tx.result!.txHash ?? null} />
 							</div>
 						</Panel>
 					) : reviewing || tx.stage !== "idle" ? (
@@ -230,10 +234,10 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 								<DetailRow label="Asset" value={`Testnet ${code}`} />
 								<DetailRow label="Amount" value={money(value, asset)} />
 								<DetailRow label="Receiving wallet" value={<span className="font-mono">{owner ? shortKey(owner) : "—"}</span>} />
-								<DetailRow label={`Vault ${assetCode(p.source_asset)} after withdrawal`} value={`${money(side === "source" ? leftUsdc : BigInt(p.source_balance), p.source_asset)}${side === "target" ? " · unchanged" : ""}`} />
+								<DetailRow label={`Vault ${p.source_asset} after withdrawal`} value={`${money(side === "source" ? leftUsdc : BigInt(p.available_source), p.source_asset)}${side === "target" ? " · unchanged" : ""}`} />
 								<DetailRow
-									label={`${assetCode(p.target_asset)} after withdrawal`}
-									value={`${money(side === "target" ? BigInt(p.target_balance) - value : BigInt(p.target_balance), p.target_asset)}${side === "source" ? " · unchanged" : ""}`}
+									label={`${p.target_asset} after withdrawal`}
+									value={`${money(side === "target" ? BigInt(p.available_target) - value : BigInt(p.available_target), p.target_asset, 4)}${side === "source" ? " · unchanged" : ""}`}
 								/>
 								<DetailRow label="Network fee" value="Shown in wallet · XLM" />
 							</dl>
@@ -259,8 +263,8 @@ export function WithdrawFunds({ vaultId }: { vaultId: string }) {
 							<PanelHeader title={<span className="h-card">Review withdrawal</span>} />
 							<p className="mt-4 text-base font-light text-muted">Choose an asset and an amount, then review the summary before your wallet asks you to sign.</p>
 							<dl className="mt-6 flex flex-col gap-3">
-								<DetailRow label={`Available ${assetCode(p.source_asset)}`} value={money(p.source_balance, p.source_asset)} />
-								<DetailRow label={`Available ${assetCode(p.target_asset)}`} value={money(p.target_balance, p.target_asset)} />
+								<DetailRow label={`Available ${p.source_asset}`} value={money(p.available_source, p.source_asset)} />
+								<DetailRow label={`Available ${p.target_asset}`} value={money(p.available_target, p.target_asset, 4)} />
 							</dl>
 						</Panel>
 					)}

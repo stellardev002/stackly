@@ -6,6 +6,7 @@ import { StacklyLogo } from "@repo/ui/brand";
 import { cn } from "@repo/ui/lib/utils";
 import { overviewRoutes, portfolioRoutes, settingsRoutes, transactionRoutes } from "@/lib/routes";
 import { WalletMenu } from "@/components/layouts/WalletMenu";
+import { NotificationsBell } from "@/components/layouts/NotificationsBell";
 
 /** Minimal navigation (PRD §5): four tabs. Vault pages belong to Dashboard. */
 const TABS = [
@@ -54,12 +55,12 @@ export function TopNav() {
 						<StacklyLogo className="[&>span:last-child]:text-[24px] sm:[&>span:last-child]:text-[28px]" />
 					</Link>
 					<div className="md:hidden">
-						<WalletMenu compact />
+						<div className="flex items-center gap-2"><NotificationsBell /><WalletMenu compact /></div>
 					</div>
 				</div>
 				<div className="md:flex md:flex-1 md:justify-center">{tabs}</div>
 				<div className="hidden md:block">
-					<WalletMenu />
+					<div className="flex items-center gap-3"><NotificationsBell /><WalletMenu /></div>
 				</div>
 			</div>
 		</header>

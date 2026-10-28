@@ -1,20 +1,20 @@
 /**
- * The DCA vault's data model, mirrored from the Soroban contract (`contracts/dca-vault/src/types.rs`) and the
- * indexer schema (`supabase/migrations`). Keep the three in step. Amounts are strings of stroops (i128 on chain)
- * so nothing loses precision in JSON. Ids are the display references the UI shows (STK-001, EX-004, DP-001).
+ * The UI's data model, mapped from the Stackly backend (https://api.usestackly.app/docs) by
+ * `apps/web/src/lib/api/adapters.ts`. The backend sends decimal strings and camelCase; the UI keeps amounts as
+ * stroop strings (integer, 7 decimals) so nothing loses precision and money maths stays in BigInt.
+ *
+ * Architecture (backend): each DCA position has its own classic Stellar account whose only signer is the owner's
+ * wallet. Deposits are payments into it; purchases are swaps the wallet pre-authorizes in batches (fixed amount,
+ * minimum output, destination and earliest time), which the backend's keeper submits when due.
  */
 
-/** PRD §10 "Position status". `created` is configured but not yet activated. */
-export type PositionStatus = "created" | "active" | "paused" | "closed";
+export type PositionStatus = "pending" | "active" | "paused" | "cancelled" | "completed";
 
 export type Frequency = "daily" | "weekly" | "monthly";
 
 const DAY_SECONDS = 86_400;
 
-/**
- * The contract stores intervals in seconds. "Monthly" is a fixed 30-day interval, not a calendar month,
- * and the UI must say so wherever a monthly schedule is chosen or shown (PRD Screen 4).
- */
+/** Monthly is a fixed 30-day interval, not a calendar month (PRD Screen 4, backend `intervalSeconds`). */
 export const FREQUENCY_SECONDS: Record<Frequency, number> = {
 	daily: DAY_SECONDS,
 	weekly: 7 * DAY_SECONDS,
@@ -23,86 +23,111 @@ export const FREQUENCY_SECONDS: Record<Frequency, number> = {
 
 export const MONTHLY_NOTE = "Monthly is a fixed 30-day interval, not a calendar month, so the date drifts against the calendar.";
 
-export function frequencyOf(intervalSeconds: number): Frequency | null {
-	const match = (Object.keys(FREQUENCY_SECONDS) as Frequency[]).find((f) => FREQUENCY_SECONDS[f] === intervalSeconds);
-	return match ?? null;
+/** An asset as the backend lists it (`GET /assets`). `id` is what create / withdraw requests take. */
+export interface AssetRef {
+	id: string;
+	code: string;
+	/** Empty for native XLM. */
+	issuer: string;
 }
 
-/** PRD §10 "DCA Position Data". */
+export type FailureReason = "insufficient_balance" | "insufficient_liquidity" | "slippage_exceeded" | "swap_reverted" | "submission_failed";
+
+export interface LastExecution {
+	id: string;
+	status: ExecutionStatus;
+	scheduled_for: string;
+	failure_reason: FailureReason | null;
+}
+
+/** A position with its balances (`GET /dca-positions/{id}` + `/balance`). */
 export interface Position {
 	id: string;
-	/** Off-chain label ("The weekly stack"); the contract doesn't store it. */
+	/** Display label derived from the strategy ("Weekly USDC → XLM"); the backend stores no name. */
 	name: string;
-	owner: string;
-	/** Asset ids ("USDC:G…" or "XLM"), see `assetId`. */
+	source: AssetRef;
+	target: AssetRef;
+	/** Asset codes, for display and `money()`. */
 	source_asset: string;
 	target_asset: string;
+	frequency: Frequency;
 	purchase_amount: string;
 	interval_seconds: number;
 	/** Unix seconds. */
 	start_ts: number;
 	end_ts: number | null;
 	next_execution_ts: number;
-	/** Basis points (100 = 1%). */
 	max_slippage_bps: number;
+	status: PositionStatus;
+	/** Signed purchases still ready for the keeper. Zero means nothing can run until the owner signs more. */
+	authorizations_remaining: number;
+	last_execution: LastExecution | null;
+	created_at: string;
 	total_deposited: string;
 	total_spent: string;
+	total_withdrawn: string;
+	/** Source still in the account (deposited − spent − withdrawn). */
 	source_balance: string;
+	/** Source not promised to an in-flight purchase: what gates purchases and withdrawals. */
+	available_source: string;
+	reserved_for_purchase: string;
 	target_balance: string;
+	available_target: string;
 	execution_count: number;
-	status: PositionStatus;
-	created_at: string;
 }
 
-/** PRD Screen 8. */
+/** The position's own Stellar account: deposits are payments to `address`. */
+export interface PositionAccount {
+	address: string;
+	ready: boolean;
+	explorer_url: string;
+}
+
+/** Backend statuses are submitted · completed · failed · skipped; scheduled / eligible are derived for display. */
 export type ExecutionStatus = "scheduled" | "eligible" | "submitted" | "completed" | "failed" | "skipped";
-
-export interface ExecutionEvent {
-	at: string;
-	label: string;
-}
 
 export interface Execution {
 	id: string;
 	position_id: string;
-	/** Which interval this was (0-based); the contract completes each one at most once. */
-	interval_index: number;
-	/** 1 for the first try at an interval, 2 for the keeper's retry, … */
-	attempt: number;
-	source_amount: string;
-	received_amount: string | null;
-	/** Source units paid per target unit ("0.25" USDC per XLM), as a decimal string. */
-	execution_price: string | null;
-	min_received: string;
-	slippage_bps: number | null;
-	/** Protocol / adapter fee in the source asset (stroops). */
-	fee: string | null;
-	/** Stellar network fee in XLM (stroops). */
-	network_fee: string | null;
-	status: ExecutionStatus;
-	failure_reason: string | null;
-	/** Null when the attempt stopped before submission. */
-	tx_hash: string | null;
 	scheduled_at: string;
+	interval_seconds: number;
+	status: ExecutionStatus;
+	source_asset: string;
+	target_asset: string;
+	source_amount: string;
+	expected_amount: string | null;
+	min_received: string | null;
+	received_amount: string | null;
+	/** Source paid per target unit, decimal string. */
+	execution_price: string | null;
+	slippage_bps: number | null;
+	/** Network fee in XLM (stroops), paid by the project. */
+	fee: string | null;
+	tx_hash: string | null;
+	explorer_url: string | null;
+	failure_reason: FailureReason | null;
+	/** The cause can clear (slippage, liquidity, balance), so the owner may make up the purchase. */
+	retryable: boolean;
 	executed_at: string | null;
-	events: ExecutionEvent[];
+	created_at: string;
 }
 
-/** PRD Screen 9. */
-export type TransactionType = "deposit" | "swap" | "withdrawal" | "failed_execution";
+/** One `GET /history` entry (Screen 9). */
+export type TransactionType = "deposit" | "swap" | "withdrawal" | "failed_execution" | "adjustment";
 
 export interface VaultTransaction {
 	id: string;
 	position_id: string;
 	type: TransactionType;
+	status: "confirmed" | "failed" | "skipped";
 	asset: string;
+	/** Absolute amount in stroops; `direction` says which way it moved. */
 	amount: string;
-	/** For swaps: what came back (target asset). */
+	direction: "in" | "out";
 	counter_asset: string | null;
 	counter_amount: string | null;
-	execution_id: string | null;
-	failure_reason: string | null;
-	status: "pending" | "confirmed" | "failed";
 	tx_hash: string | null;
+	explorer_url: string | null;
+	failure_reason: string | null;
 	created_at: string;
 }

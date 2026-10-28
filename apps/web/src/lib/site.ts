@@ -14,14 +14,20 @@ const THEME_COLOR = "#ffffff";
 /** Read through next.config `env`, so client components agree with the server render. */
 const IS_PRODUCTION = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
 
+/** Production host, shared with the landing site (the app lives under `/app`). */
+const PRODUCTION_ORIGIN = "https://usestackly.app";
+
 /**
- * Absolute site URL for `metadataBase`: NEXT_PUBLIC_SITE_URL → the deployment URL on Vercel → localhost
- * in dev. Set NEXT_PUBLIC_SITE_URL in production once the domain is chosen.
+ * Absolute site URL for `metadataBase`: NEXT_PUBLIC_SITE_URL → https://usestackly.app in production → the
+ * deployment URL on Vercel previews → localhost in dev. The base path (`/app`) is added below.
  */
 const ORIGIN =
-	process.env.NEXT_PUBLIC_SITE_URL ?? (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ?? "http://localhost:3000";
+	process.env.NEXT_PUBLIC_SITE_URL ??
+	(IS_PRODUCTION ? PRODUCTION_ORIGIN : undefined) ??
+	(process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ??
+	"http://localhost:3000";
 
-/** This app's base path: `/app` on previews, empty in production and dev (next.config.ts). */
+/** This app's base path: `/app` on every Vercel deployment, empty in dev (next.config.ts). */
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 /** Prefix app-local assets when this app is mounted below the site root (previews). */

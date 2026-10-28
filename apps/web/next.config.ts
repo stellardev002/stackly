@@ -9,9 +9,12 @@ import type { NextConfig } from "next";
  */
 const BASE_PATH = process.env.APP_BASE_PATH ?? (process.env.VERCEL ? "/app" : "");
 
+/** The Stackly backend (https://api.usestackly.app/docs). Its routes sit under `/v1`. */
+const API_ORIGIN = process.env.API_PROXY_TARGET || "https://api.usestackly.app";
+
 /**
- * The read API (positions, executions, history, portfolio) is served by this app's own route handlers
- * under `/api/v1` (src/app/api/v1). NEXT_PUBLIC_API_URL points the browser elsewhere if that moves.
+ * Where the browser sends API calls: this app's own `/api/v1` path, proxied to the backend below, so CORS never
+ * applies (the backend doesn't allow browser origins). NEXT_PUBLIC_API_URL forces direct calls instead.
  */
 const API_URL = process.env.NEXT_PUBLIC_API_URL || `${BASE_PATH}/api/v1`;
 
@@ -25,9 +28,13 @@ const nextConfig: NextConfig = {
 	reactCompiler: true,
 	// The demo controls sit bottom-left; keep Next's dev badge out of their way.
 	devIndicators: { position: "bottom-right" },
-	transpilePackages: ["@repo/ui", "@repo/mock-api", "@repo/stellar"],
+	transpilePackages: ["@repo/ui", "@repo/stellar"],
 	// Dev only: let a phone on the LAN load dev assets / HMR.
 	allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "172.*.*.*"],
+	// Same-origin API proxy: the browser calls `<basePath>/api/v1/…`, Next forwards it to the backend's `/v1/…`.
+	async rewrites() {
+		return [{ source: "/api/v1/:path*", destination: `${API_ORIGIN}/v1/:path*` }];
+	},
 };
 
 export default nextConfig;

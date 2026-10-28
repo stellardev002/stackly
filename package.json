@@ -3,12 +3,10 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --filter=!keeper",
+    "dev": "turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types",
-    "contracts:build": "cd contracts && stellar contract build",
-    "contracts:test": "cd contracts && cargo test"
+    "check-types": "turbo run check-types"
   },
   "devDependencies": {
     "prettier": "^3.9.9",

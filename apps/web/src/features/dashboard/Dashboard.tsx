@@ -20,7 +20,7 @@ import { AllocationDonut } from "@/components/charts/AllocationDonut";
 import { CumulativeChart } from "@/components/charts/CumulativeChart";
 import { usePortfolio } from "@/features/portfolio/hooks";
 import { usePositions, useRecentExecutions } from "@/features/vaults/hooks";
-import { POSITION_STATUS, fundedPurchases, nextIntervalStatus } from "@/features/vaults/status";
+import { POSITION_STATUS, fundedPurchases, nextIntervalStatus, shortId } from "@/features/vaults/status";
 
 const usdc = assetId(USDC);
 const xlm = assetId(XLM);
@@ -30,7 +30,7 @@ export function Dashboard() {
 	const now = useNow();
 	const positions = usePositions();
 	const portfolio = usePortfolio();
-	const recent = useRecentExecutions(10);
+	const recent = useRecentExecutions(positions.data, 5);
 
 	const createButton = (
 		<Button asChild>
@@ -73,7 +73,7 @@ export function Dashboard() {
 	const totals = portfolio.data;
 	const active = list.filter((p) => p.status === "active");
 	const executions = recent.data ?? [];
-	const upcoming = [...list].filter((p) => p.status !== "closed").sort((a, b) => rank(a) - rank(b) || a.next_execution_ts - b.next_execution_ts)[0];
+	const upcoming = [...list].filter((p) => p.status === "active" || p.status === "pending" || p.status === "paused").sort((a, b) => rank(a) - rank(b) || a.next_execution_ts - b.next_execution_ts)[0];
 	const empty = list.length === 0;
 
 	return (
@@ -86,12 +86,12 @@ export function Dashboard() {
 					{
 						label: "Available USDC",
 						value: <Amount stroops={totals.source_balance} asset={usdc} />,
-						caption: empty ? "No purchases funded" : `${list.reduce((n, p) => n + (p.status === "closed" ? 0 : fundedPurchases(p)), 0)} purchases funded`,
+						caption: empty ? "No purchases funded" : `${list.reduce((n, p) => n + (p.status === "cancelled" || p.status === "completed" ? 0 : fundedPurchases(p)), 0)} purchases funded`,
 					},
 					{
 						label: "Purchased XLM",
 						value: <Amount stroops={totals.target_balance} asset={xlm} />,
-						caption: empty ? "No purchases yet" : `${active.length} active position${active.length === 1 ? "" : "s"} · no valuation`,
+						caption: empty ? "No purchases yet" : `${totals.counts?.active ?? active.length} active position${(totals.counts?.active ?? active.length) === 1 ? "" : "s"} · no valuation`,
 					},
 				]}
 			/>
@@ -111,7 +111,7 @@ export function Dashboard() {
 											Acquired across {totals.purchase_count} purchase{totals.purchase_count === 1 ? "" : "s"}
 										</p>
 									</div>
-									<Chip tone="neutral">{weeksBetween(totals.series[0]!.at, totals.series.at(-1)!.at)}</Chip>
+									<Chip tone="neutral">{spanLabel(totals.series[0]!.at, totals.series.at(-1)!.at)}</Chip>
 								</div>
 								<div className="mt-4">
 									<CumulativeChart series={totals.series} />
@@ -134,7 +134,7 @@ export function Dashboard() {
 							/>
 							<ul className="mt-3 flex flex-col">
 								{executions.slice(0, 3).map((e, i) => (
-									<SwapRow key={e.id} execution={e} position={list.find((p) => p.id === e.position_id)} index={i} />
+									<SwapRow key={e.id} execution={e} index={i} />
 								))}
 							</ul>
 						</Panel>
@@ -162,17 +162,20 @@ export function Dashboard() {
 	);
 }
 
-/** Positions needing action first (created, paused), then active by next purchase. */
-const rank = (p: Position) => (p.status === "active" ? 0 : p.status === "created" ? 1 : 2);
+/** Active positions first, then ones needing action (pending, paused), by next purchase. */
+const rank = (p: Position) => (p.status === "active" ? 0 : p.status === "pending" ? 1 : 2);
 
 function shareLabel(part: string, other: string) {
 	const total = Number(part) + Number(other);
 	return total > 0 ? ` · ${Math.round((Number(part) / total) * 100)}%` : "";
 }
 
-function weeksBetween(a: string, b: string) {
-	const weeks = Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / (7 * 86_400_000)) + 1);
-	return `${weeks} week${weeks === 1 ? "" : "s"}`;
+/** How long the purchases span: "1 day", "5 days", "3 weeks". */
+function spanLabel(a: string, b: string) {
+	const days = Math.max(1, Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000) + 1);
+	if (days < 14) return `${days} day${days === 1 ? "" : "s"}`;
+	const weeks = Math.round(days / 7);
+	return `${weeks} weeks`;
 }
 
 function StatsRow({ cards }: { cards?: { label: string; value: React.ReactNode; caption: string }[] }) {
@@ -244,7 +247,7 @@ function Strategies({ positions }: { positions: Position[] }) {
 									{p.status !== "active" && <Chip tone={POSITION_STATUS[p.status].tone}>{POSITION_STATUS[p.status].label}</Chip>}
 								</div>
 								<p className="caption mt-2">
-									{p.id} · Started {utcDate(p.start_ts * 1000)}
+									{shortId(p.id)} · Started {utcDate(p.start_ts * 1000)}
 								</p>
 							</div>
 							<dl className="flex flex-col gap-1.5 text-sm sm:items-end [&_dd]:text-sm [&_dt]:text-sm">
@@ -258,7 +261,7 @@ function Strategies({ positions }: { positions: Position[] }) {
 								<Link href={vaultRoutes.VAULT(p.id)}>View position</Link>
 							</Button>
 							<Button asChild>
-								<Link href={vaultRoutes.DEPOSIT(p.id)}>{p.status === "created" ? "Fund vault" : "Deposit funds"}</Link>
+								<Link href={vaultRoutes.DEPOSIT(p.id, { flow: p.status === "pending" })}>{p.status === "pending" ? "Fund vault" : "Deposit funds"}</Link>
 							</Button>
 						</div>
 					</li>

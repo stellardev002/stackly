@@ -1,21 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, RotateCcw } from "lucide-react";
 import type { Execution, Position } from "@repo/stellar/vault";
-import { assetCode } from "@repo/stellar/assets";
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { Chip, DetailRow, Notice, Panel, PanelHeader } from "@repo/ui/surface";
 import { cn } from "@repo/ui/lib/utils";
+import { httpStatus } from "@/lib/api/errors";
 import { everyLabel, money, percent, utcDate, utcDateTime, utcTimeSeconds } from "@/lib/format";
 import { vaultRoutes } from "@/lib/routes";
 import { formatAmount } from "@/lib/stellar/config";
-import { ExplorerButton, HashText } from "@/components/ExplorerButton";
+import { useToast } from "@/lib/use-toast";
+import { ExplorerButton, HashText, explorerAction } from "@/components/ExplorerButton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState, SkeletonLines } from "@/components/states";
-import { useExecution, usePosition } from "@/features/vaults/hooks";
-import { EXECUTION_STATUS } from "@/features/vaults/status";
+import { TxProgress } from "@/components/TxProgress";
+import { vaultClient } from "@/features/vaults/client";
+import { useExecution, usePosition, useVaultTx } from "@/features/vaults/hooks";
+import { EXECUTION_STATUS, failureText, purchasesToSign, shortId } from "@/features/vaults/status";
 import { VaultNotFound } from "@/features/vaults/components/VaultNotFound";
 
 const TITLE: Record<Execution["status"], string> = {
@@ -27,17 +30,17 @@ const TITLE: Record<Execution["status"], string> = {
 	skipped: "Skipped purchase",
 };
 
-/** Screen 8 (Figma 28:11626 + Loading 40:33759 + Error 40:31891), for every PRD execution status. */
+/** Screen 8 (Figma 28:11626 + Loading 40:33759 + Error 40:31891), from `GET /executions/{id}`. */
 export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; executionId: string }) {
 	const execution = useExecution(executionId);
 	const position = usePosition(vaultId);
 
 	if (execution.isError || position.isError) {
-		const notFound = ((execution.error ?? position.error) as { response?: { status?: number } }).response?.status === 404;
+		const error = execution.error ?? position.error;
 		return (
 			<>
 				<PageHeader title="Swap execution details" />
-				{notFound ? <VaultNotFound /> : <ErrorState error={execution.error ?? position.error} onRetry={() => void Promise.all([execution.refetch(), position.refetch()])} />}
+				{httpStatus(error) === 404 ? <VaultNotFound /> : <ErrorState error={error} onRetry={() => void Promise.all([execution.refetch(), position.refetch()])} />}
 			</>
 		);
 	}
@@ -61,14 +64,19 @@ export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; ex
 	const e = execution.data;
 	const p = position.data;
 	const status = EXECUTION_STATUS[e.status];
-	const source = p.source_asset;
-	const target = p.target_asset;
+	const reason = failureText(e.failure_reason);
+	const timeline = [
+		{ at: e.scheduled_at, label: "Interval eligible" },
+		{ at: e.created_at, label: e.status === "skipped" ? "Not attempted" : "Submitted by the keeper" },
+		...(e.executed_at ? [{ at: e.executed_at, label: "Purchase completed" }] : []),
+		...(e.status === "failed" || e.status === "skipped" ? [{ at: e.created_at, label: `${status.label} · ${reason?.title ?? "see reason"}` }] : []),
+	].sort((a, b) => a.at.localeCompare(b.at));
 
 	return (
 		<>
 			<PageHeader
 				title="Swap execution details"
-				subtitle={`${p.name} · ${p.id} · Execution ${e.id}`}
+				subtitle={`${p.name} · ${shortId(p.id)} · Execution ${shortId(e.id)}`}
 				action={
 					<Button asChild variant="outline">
 						<Link href={vaultRoutes.VAULT(p.id)}>
@@ -86,53 +94,51 @@ export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; ex
 						<p className="mt-6 text-[36px] leading-none tracking-[-0.06em] sm:text-[48px]">
 							{e.status === "completed" && e.received_amount ? (
 								<>
-									{money(e.source_amount, source)} → {money(e.received_amount, target)}
+									{money(e.source_amount, e.source_asset)} → {money(e.received_amount, e.target_asset)}
 								</>
 							) : e.status === "submitted" ? (
 								<>
-									{money(e.source_amount, source)} → <span className="text-muted">{assetCode(target)}</span>
+									{money(e.source_amount, e.source_asset)} → <span className="text-muted">{e.target_asset}</span>
 								</>
 							) : (
-								`${money(e.source_amount, source)} attempted`
+								`${money(e.source_amount, e.source_asset)} attempted`
 							)}
 						</p>
 						<p className="caption mt-3 border-b border-line pb-6">
-							{e.status === "completed" ? "Actual source spend and target output" : `${assetCode(source)} → ${assetCode(target)}`} · Stellar Testnet
+							{e.status === "completed" ? "Actual source spend and target output" : `${e.source_asset} → ${e.target_asset}`} · Stellar Testnet DEX
 						</p>
 						<dl className="mt-6 flex flex-col gap-4">
-							<DetailRow label="Execution ID" value={e.attempt > 1 ? `${e.id} · attempt ${e.attempt}` : e.id} />
-							<DetailRow label="Purchase interval" value={`${utcDate(e.scheduled_at)} · ${everyLabel(p.interval_seconds).toLowerCase()}`} />
-							<DetailRow label="Source spent" value={e.status === "completed" ? money(e.source_amount, source) : `0 ${assetCode(source)}`} />
-							<DetailRow label="Target received" value={e.received_amount ? money(e.received_amount, target, 4) : `0 ${assetCode(target)}`} />
-							<DetailRow label="Execution price" value={e.execution_price ? `${e.execution_price} ${assetCode(source)} / ${assetCode(target)}` : "Not executed"} />
-							<DetailRow label={e.status === "completed" ? "Actual slippage" : "Maximum slippage"} value={e.slippage_bps !== null ? `${percent(e.slippage_bps)} · max ${percent(p.max_slippage_bps)}` : percent(p.max_slippage_bps)} />
-							<DetailRow label="Minimum accepted" value={money(e.min_received, target, 4)} />
-							<DetailRow label="Execution fee" value={e.status === "completed" ? `${formatAmount(e.fee ?? "0")} ${assetCode(source)}` : `0 ${assetCode(source)} · no swap`} />
-							<DetailRow label="Network fee" value={e.network_fee ? `${formatAmount(e.network_fee, 7)} XLM` : "0 XLM · not submitted"} />
+							<DetailRow label="Execution ID" value={<span title={e.id}>{shortId(e.id)}</span>} />
+							<DetailRow label="Purchase interval" value={`${utcDate(e.scheduled_at)} · ${everyLabel(e.interval_seconds).toLowerCase()}`} />
+							<DetailRow label="Source spent" value={e.status === "completed" ? money(e.source_amount, e.source_asset) : `0 ${e.source_asset}`} />
+							<DetailRow label="Target received" value={e.received_amount ? money(e.received_amount, e.target_asset, 4) : `0 ${e.target_asset}`} />
+							<DetailRow label="Expected at submission" value={e.expected_amount ? money(e.expected_amount, e.target_asset, 4) : "—"} />
+							<DetailRow label="Minimum accepted" value={e.min_received ? money(e.min_received, e.target_asset, 4) : "—"} />
+							<DetailRow label="Execution price" value={e.execution_price ? `${e.execution_price} ${e.source_asset} / ${e.target_asset}` : "Not executed"} />
 							<DetailRow
-								label={e.status === "completed" ? "Completed" : e.status === "failed" ? "Failed at" : e.status === "skipped" ? "Skipped at" : "Scheduled"}
-								value={utcDateTime(e.executed_at ?? e.scheduled_at)}
+								label={e.status === "completed" ? "Actual slippage" : "Maximum slippage"}
+								value={e.slippage_bps !== null ? `${percent(e.slippage_bps)}${e.slippage_bps < 0 ? " (better than quoted)" : ""} · max ${percent(p.max_slippage_bps)}` : percent(p.max_slippage_bps)}
+							/>
+							<DetailRow label="Network fee" value={e.fee ? `${formatAmount(e.fee, 7)} XLM · paid by Stackly` : "0 XLM"} />
+							<DetailRow
+								label={e.status === "completed" ? "Completed" : e.status === "failed" ? "Failed at" : e.status === "skipped" ? "Skipped at" : "Submitted"}
+								value={utcDateTime(e.executed_at ?? e.created_at)}
 							/>
 						</dl>
-						{(e.status === "failed" || e.status === "skipped") && (
-							<Button asChild className="mt-8">
-								<Link href={e.status === "skipped" ? vaultRoutes.DEPOSIT(p.id) : vaultRoutes.VAULT(p.id)}>{e.status === "skipped" ? "Deposit more" : "Review strategy limits"}</Link>
-							</Button>
-						)}
 					</Panel>
 				</div>
 
 				<aside className="flex min-w-0 flex-col gap-4">
 					{e.status === "completed" && (
-						<Notice tone="info" title="Execution states are explicit" className="animate-rise">
-							Scheduled, Eligible, Submitted, Completed, Failed and Skipped each have a distinct state. Only completed swaps add acquired XLM.
+						<Notice tone="info" title="Executed as you signed it" className="animate-rise">
+							This purchase was one of the transactions your wallet pre-authorized: its amount, minimum output and earliest time were fixed on chain. Only completed swaps add XLM.
 						</Notice>
 					)}
 					<Panel className="animate-rise" style={{ "--i": 2 } as React.CSSProperties}>
 						<PanelHeader title="Stellar reference" action={<Chip tone="soft">Stellar Testnet</Chip>} />
 						{e.tx_hash ? (
 							<>
-								<p className="caption mt-5">Transaction hash{e.tx_hash.startsWith("demo") && " · demo data, not on chain"}</p>
+								<p className="caption mt-5">Transaction hash</p>
 								<p className="mt-2 text-2xl tracking-[-0.03em]">
 									<HashText hash={e.tx_hash} />
 								</p>
@@ -151,10 +157,10 @@ export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; ex
 					<Panel className="animate-rise" style={{ "--i": 3 } as React.CSSProperties}>
 						<PanelHeader title="Execution timeline" />
 						<ol className="relative mt-5 flex flex-col gap-4">
-							{e.events.map((event, i) => {
-								const lastEvent = i === e.events.length - 1;
+							{timeline.map((event, i) => {
+								const lastEvent = i === timeline.length - 1;
 								return (
-									<li key={`${event.at}-${i}`} className="animate-rise flex items-start gap-3" style={{ "--i": i } as React.CSSProperties}>
+									<li key={`${event.label}-${i}`} className="animate-rise flex items-start gap-3" style={{ "--i": i } as React.CSSProperties}>
 										<span className={cn("mt-1.5 flex size-3 shrink-0 rounded-full", lastEvent ? (e.status === "failed" ? "bg-danger" : e.status === "completed" ? "bg-coral" : "bg-ink") : "bg-line")} aria-hidden />
 										<span className="text-base">
 											<span className="font-light text-muted tabular-nums">{utcTimeSeconds(event.at)}</span> <span className="text-subtle">/</span> {event.label}
@@ -168,7 +174,6 @@ export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; ex
 								</li>
 							)}
 						</ol>
-						{(e.status === "failed" || e.status === "skipped") && <p className="caption mt-4">No purchase completed in this attempt.</p>}
 					</Panel>
 				</aside>
 			</div>
@@ -177,24 +182,48 @@ export function ExecutionDetails({ vaultId, executionId }: { vaultId: string; ex
 }
 
 function StatusNotices({ execution: e, position: p }: { execution: Execution; position: Position }) {
-	if (e.status === "failed") {
-		const slippage = /slippage/i.test(e.failure_reason ?? "");
+	const toast = useToast();
+	const tx = useVaultTx();
+	const reason = failureText(e.failure_reason);
+	const isLatest = p.last_execution?.id === e.id;
+	const canRetry = e.retryable && isLatest && (p.status === "active" || p.status === "paused") && p.authorizations_remaining === 0;
+	const count = Math.max(1, purchasesToSign(p));
+
+	const retry = async () => {
+		const res = await tx.run((opts) => vaultClient.retryMissed(p.id, count, opts));
+		if (res) toast.success("Missed purchase rescheduled", { description: "It's signed and eligible now; the keeper will pick it up shortly.", action: explorerAction(res.txHash) });
+	};
+
+	if (e.status === "failed" || e.status === "skipped") {
 		return (
-			<div className="animate-rise grid gap-4 xl:grid-cols-2">
-				<Notice tone="error" title={slippage ? "Swap failed · slippage limit exceeded" : "Swap failed · insufficient liquidity"}>
-					{e.failure_reason} No swap was performed: no USDC was spent and no XLM was acquired.
-				</Notice>
-				<Notice tone="warning" title="Your balances are unchanged">
-					Only completed swaps add acquired XLM. The keeper retries this interval while it is still eligible.
-				</Notice>
+			<div className="animate-rise flex flex-col gap-4">
+				<div className="grid gap-4 xl:grid-cols-2">
+					<Notice tone="error" title={`${e.status === "failed" ? "Swap failed" : "Purchase skipped"} · ${reason?.title ?? "unknown reason"}`}>
+						{reason?.body ?? e.failure_reason} No swap was performed: no USDC was spent and no XLM was acquired.
+					</Notice>
+					<Notice tone="warning" title="Your balances are unchanged">
+						A missed interval isn&apos;t retried automatically. {e.retryable ? "This cause can clear, so you can make up the purchase." : "The keeper moves on to the next interval."}
+					</Notice>
+				</div>
+				{e.retryable && isLatest && (
+					<Panel>
+						<PanelHeader title="Make up this purchase" />
+						<p className="mt-2 text-sm font-light text-muted">
+							Reschedules the missed purchase to now. A signed purchase can&apos;t run twice, so your wallet signs a fresh batch of {count}.
+							{!canRetry && p.authorizations_remaining > 0 && " Available once the purchases you already signed are used."}
+						</p>
+						{tx.stage !== "idle" && tx.stage !== "confirmed" && <TxProgress stage={tx.stage} className="mt-4" />}
+						{tx.stage === "failed" && (
+							<Notice tone="error" title="Couldn't reschedule" className="mt-4">
+								{tx.error}
+							</Notice>
+						)}
+						<Button className="mt-4" onClick={retry} disabled={!canRetry} isLoading={tx.busy} loadingText={tx.stage === "signing" ? "Waiting for wallet…" : "Submitting…"}>
+							<RotateCcw /> Make up purchase
+						</Button>
+					</Panel>
+				)}
 			</div>
-		);
-	}
-	if (e.status === "skipped") {
-		return (
-			<Notice tone="warning" title="Purchase skipped · insufficient balance" className="animate-rise">
-				{e.failure_reason} Remaining balance: {money(p.source_balance, p.source_asset)}.
-			</Notice>
 		);
 	}
 	if (e.status === "submitted") {

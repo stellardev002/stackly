@@ -1,98 +1,91 @@
 # Stackly
 
-Non-custodial dollar-cost averaging (DCA) vault on Stellar / Soroban. MVP, Sprint 1, **Testnet only**: connect wallet →
-create DCA position → deposit USDC → activate → keeper triggers a due swap → contract validates → swap executes →
-dashboard updates. PRD: https://docs.google.com/document/d/1S5PLcwsOmR-oyoCTnClxQRchN2iv3pExmDKbkZ_Lb1s.
-**Scope, screen→route map, module status and open decisions: `docs/PLAN.md`. Test scenarios: `docs/TESTING.md`.**
-Structure mirrors the Stellance reference repo (github.com/usestellance/stellance-v3); when in doubt about a
-convention, check how it did it.
+Non-custodial dollar-cost averaging (DCA) on Stellar. MVP, Sprint 1, **Testnet only**: connect wallet → sign in →
+create DCA position → deposit USDC → sign purchases → activate → keeper submits each due swap → dashboard updates.
+PRD: https://docs.google.com/document/d/1S5PLcwsOmR-oyoCTnClxQRchN2iv3pExmDKbkZ_Lb1s. Backend (separate repo, external
+dev): https://api.usestackly.app/docs (OpenAPI at `/docs-json`). **Scope, status and decisions: `docs/PLAN.md`. Test
+scenarios and the last live run: `docs/TESTING.md`.** Structure mirrors the Stellance reference repo
+(github.com/usestellance/stellance-v3).
+
+**Architecture (backend, accepted in place of the PRD's Soroban contract):** each DCA position has its own classic
+Stellar account; the project funds its reserve and the owner's wallet is its only signer. Deposits are payments into
+it. Purchases are swap transactions the wallet pre-authorizes in batches (≤ 19 unused per account) with the amount,
+minimum output, destination and earliest time fixed on chain; the backend's keeper submits them to the Stellar DEX
+when due. Pause / resume / cancel are backend state (already-signed purchases stay valid on chain).
 
 ## Monorepo
 
-Turborepo + pnpm 12 (`packageManager`), Node ≥ 22. Rust + Stellar CLI for `contracts/`.
+Turborepo + pnpm 12 (`packageManager`), Node ≥ 22.
 
 ```
 apps/landing/       (:3002) public site, PRD Screen 1
 apps/web/           (:3000) the app, Screens 2–12: /overview (+ wallet modal), /vaults/*, /transactions, /portfolio, /settings
-apps/keeper/        Node keeper: executes due intervals (Module 3), indexes contract events (Module 7)
 packages/ui/        @repo/ui — design tokens, shadcn components, motion, fonts, the social card
-packages/stellar/   @repo/stellar — network constants, supported assets, vault data model, stroop formatting
-packages/mock-api/  @repo/mock-api — the in-browser demo backend (axios adapter + seed data)
+packages/stellar/   @repo/stellar — network constants, assets, the UI data model (vault.ts), stroop formatting
 packages/eslint-config, packages/typescript-config
-contracts/          Cargo workspace: dca-vault (Module 1), swap-adapter (Module 2). Not a pnpm package.
-supabase/           Indexer database migrations
 ```
 
-`pnpm dev` (all) · `pnpm build` · `pnpm check-types` · `pnpm lint` (packages and keeper: `--max-warnings 0`) ·
-`pnpm format` (prettier: tabs, width 130) · `pnpm contracts:test` · `pnpm contracts:build`.
+`pnpm dev` (both apps) · `pnpm build` · `pnpm check-types` · `pnpm lint` · `pnpm format` (prettier: tabs, width 130) ·
+`pnpm --filter web e2e:live` (live end-to-end run on Testnet, `apps/web/scripts/e2e-live.mts`).
 
 ## Deployment (Vercel Services)
 
 One Vercel project, routed by the root `vercel.json`: `/app` and `/app/*` → `apps/web`, everything else →
-`apps/landing`. Dev host for now: https://stackly-topaz.vercel.app (landing) · …/app (the app). `apps/web` sets
-`basePath: "/app"` on every Vercel build (`VERCEL` is set); set `APP_BASE_PATH=""` in the Vercel project once the app
-has its own domain. Landing links into the app with plain `<a>`s to `APP_URL` (`/app` on Vercel) and redirects bare
-app paths (`/overview`, `/vaults/*`…) to `/app/…`. Turborepo only passes declared env vars to builds: keep `VERCEL`
-and `APP_BASE_PATH` in `turbo.json`.
+`apps/landing`. Production: **https://usestackly.app** (landing) · https://usestackly.app/app (the app); dev host
+https://stackly-topaz.vercel.app. `apps/web` sets `basePath: "/app"` on every Vercel build (`VERCEL` is set); set
+`APP_BASE_PATH=""` once the app has its own domain. `src/lib/site.ts` in each app picks https://usestackly.app in
+production for canonical / OG URLs. Landing links into the app with plain `<a>`s to `APP_URL` (`/app`) and redirects
+bare app paths (`/overview`, `/vaults/*`…) to `/app/…`. Turborepo only passes declared env vars to builds: keep
+`VERCEL`, `APP_BASE_PATH` and `API_PROXY_TARGET` in `turbo.json`.
 
 ## Stack
 
 Next.js 16 (App Router, React Compiler, Turbopack), React 19, Tailwind v4, shadcn/ui (Radix) in `@repo/ui`, TanStack
-Query + Table, zustand, react-hook-form + zod 4, axios, lucide + react-icons, sonner, recharts 2,
-`@stellar/stellar-sdk`, `@creit.tech/stellar-wallets-kit`, Supabase (keeper + API route handlers), Soroban (Rust).
+Query, zustand, react-hook-form + zod 4, axios, lucide, sonner, recharts 2, `@stellar/stellar-sdk`,
+`@creit.tech/stellar-wallets-kit`.
 
-## Data
+## Data (`apps/web/src/lib/api`)
 
-- **Source switch** (`apps/web/src/lib/api/source.ts`): **mock by default** until the indexer API exists.
-  `NEXT_PUBLIC_API_SOURCE=live` switches to live. Mock mode answers every read *and* write in the browser from
-  `@repo/mock-api` (installed as an axios `adapter`), and keeps one JSON document in localStorage
-  (`stackly-mock-db`). The seed tells the Figma story (STK-001 "The weekly stack", four 50 USDC → 200 XLM buys, one
-  slippage failure + retry) with dates relative to the first run.
-- **Simulation** (`packages/mock-api`): `keeper.ts` is a simulated keeper + contract run on every request (Eligible →
-  Submitted → Completed / Failed / Skipped, with the contract's rules); `sim.ts` is the demo-controls API (demo clock
-  and "Skip to next purchase", next wallet request approve/reject, next swap success/slippage/liquidity, wallet
-  installed, story vs new account, forced slow/error screens, reset). The **Demo controls** button
-  (`features/demo`, mock only, bottom-left) drives it. `pnpm --filter @repo/mock-api check:flow` runs the PRD §19
-  scenarios against it. Mock hashes start with `demo` and the UI never links them to an explorer.
-- **Reads** go through `api` (`lib/api/client.ts`) to `/api/v1/*`: this app's own route handlers
-  (`src/app/api/v1`, currently a 501 catch-all) querying the indexer database. Endpoints are listed in `apiRoutes`
-  (`lib/routes.ts`); `@repo/mock-api` handlers define the response shapes.
-- **Writes** are never API calls in live mode: every create / deposit / activate / pause / resume / withdraw is a
-  Soroban contract call the user signs in their wallet. `features/vaults/client.ts` (`VaultClient`) is the one seam;
-  hooks in `features/vaults/hooks.ts` only use it. Mutations never auto-retry (`retry: false`).
-- **Wallet**: `features/wallet/kit.ts` wraps Stellar Wallets Kit (lazy-imported, browser only) behind a custom
-  picker (`listWallets`, `connectWallet`). Freighter, xBull and Albedo are always the **real extensions on Testnet**
-  (connect refuses another network); mock mode adds a **Demo wallet** (`walletId: "demo"`, simulated prompt driven by
-  the demo controls). With a real wallet and mock data, every vault write asks the extension to sign a real no-op
-  Testnet transaction (`bumpSequence` to 0, memo "Stackly deposit STK-002", `features/wallet/testnet.ts`); its hash
-  is stored on the record and opens on Stellar Explorer, while balances stay demo data (`sim.ensureWallet` gives the
-  address 2,500 demo USDC). Unfunded accounts get a Friendbot button (connect step, wallet menu). Only `demo…` hashes
-  are treated as off-chain (`isDemoHash`). `features/wallet/store.ts` persists the address
-  + wallet id (`stackly-wallet`). With no wallet, `WalletGate` shows `ConnectModal` over a blurred dashboard (Screen 2
-  is a modal; `/connect` redirects). Never request, store, log or render a secret key.
-- **Writes** go through `useVaultTx()` (`features/vaults/hooks.ts`): stage `signing → submitting → confirmed` or
-  `rejected` (declined in wallet, nothing sent) / `failed`. It invalidates every affected query on success.
-- **Preferences** (`features/settings/store.ts`, localStorage `stackly-preferences`): default slippage, in-app
-  notification toggles (used by `Notifier`), review-before-sign, open-explorer. No notification backend exists.
-- **Amounts** are stroop strings everywhere (i128 on chain, 7 decimals). Convert only at the edges with
-  `toStroops` / `fromStroops` (`@repo/stellar/format`); never do money math in floating point.
-- Shared types: `@repo/stellar/vault` mirrors `contracts/dca-vault/src/types.rs` and `supabase/migrations`. Change all
-  three together.
+- **Live backend only** (no mock). The browser calls `<basePath>/api/v1/*`, which `next.config.ts` rewrites to
+  `https://api.usestackly.app/v1/*` (`API_PROXY_TARGET`): the backend sends no CORS headers for browser origins.
+  Envelope `{ statusCode, message, data }`; lists `{ results, paginationMeta }` with `limit` / `offset`; errors
+  `{ statusCode, code, message, details?, requestId }` (`errorMessage()` in `errors.ts`).
+- **Layers:** `dto.ts` (backend shapes) → `adapters.ts` (→ the UI model in `@repo/stellar/vault`: snake_case, amounts
+  as stroop strings, ISO → unix) → `endpoints.ts` (every read) and `flows.ts` (every write). Endpoints and flows are
+  plain functions of an axios instance (+ a `Signer`), so `scripts/e2e-live.mts` runs the exact same code with a
+  Testnet keypair. Screens use them through hooks (`features/*/hooks.ts`) and `features/vaults/client.ts`.
+- **Auth** (`auth.ts`, `features/auth`): `POST /auth/challenge` → wallet `signMessage` (SEP-53, base64) →
+  `POST /auth/login` → access + single-use refresh token, persisted in `stackly-session`. `client.ts` adds the bearer
+  token and does one shared refresh on 401 (never in parallel), then clears the session; `WalletGate` then reopens the
+  connect modal at "Sign in again". `useSignOut()` revokes the refresh token.
+- **Writes** (`flows.ts`): create = `POST /dca-positions` + `POST …/account`; deposit = wallet payment of the source
+  asset to the position account, then `POST …/ledger/sync`; sign purchases = `POST …/authorizations {count}` → wallet
+  signs + submits the XDR to Horizon → `POST …/authorizations/sync`; activate / pause / resume / cancel = plain POSTs;
+  withdraw = `POST …/withdrawals` → sign + submit → ledger sync; make up a missed purchase = `POST …/retry-missed` +
+  a fresh signed batch; USDC trustline = `changeTrust` signed by the wallet. Horizon result codes become readable
+  errors (`TrustlineMissingError`, `InsufficientFundsError`). Mutations never auto-retry.
+- **Wallet** (`features/wallet/kit.ts`): Stellar Wallets Kit, lazy-imported, Testnet only (refuses another network):
+  Freighter, xBull, Albedo. `walletSigner(address)` is the `Signer` for flows. Never request, store, log or render a
+  secret key.
+- `useVaultTx()` stages: `signing → submitting → confirmed`, or `rejected` (declined, nothing sent) / `failed`; it
+  invalidates every affected query. Actions without a signature call `onSigned` immediately.
+- **Settings**: default slippage and muted notifications are server-side (`GET/PATCH /settings`); review-before-sign
+  and open-explorer are local (`stackly-preferences`). Notifications: `GET /notifications` (bell + `Notifier` toasts).
+- **Amounts** are stroop strings in the UI; the backend takes and returns 7-decimal strings. Convert only at the edges
+  (`decimalToStroops` in adapters, `decimal()` in `vaults/client.ts`); never do money maths in floating point.
 
-## Domain rules (PRD)
+## Domain rules (PRD, as implemented by the backend)
 
-- Testnet assets only. One pair: Testnet USDC → XLM, from `SUPPORTED_PAIRS` (`@repo/stellar/assets`).
+- Testnet assets only. One pair: Testnet USDC (Circle, `GBBD47…LFLA5`) → XLM, from `GET /assets`.
 - "Monthly" is a fixed 30-day interval; say so wherever it's chosen or shown (`MONTHLY_NOTE`).
-- Review must show `EXECUTION_DISCLAIMER`: prices vary, purchases can fail, a failed purchase spends nothing.
-- Show each asset's holdings separately; no summed value, P/L or returns without a reliable price source. Never present
-  simulated returns as performance.
-- **A simulated swap is never presented as a live DEX execution.** Mock mode is labelled "demo data"; a Testnet
-  liquidity adapter is labelled as such (`swap-adapter` `kind()`).
-- The keeper can only trigger a due interval: it can't withdraw, change parameters or recipients, execute early,
-  exceed the amount, or bypass slippage. The contract enforces this; the keeper never relies on its own checks.
-- Statuses: position `created · active · paused · closed`; execution `scheduled · eligible · submitted · completed ·
-  failed · skipped`; transaction types `deposit · swap · withdrawal · failed_execution`. Labels and colours live only
-  in `features/vaults/status.ts`.
+- Review shows `EXECUTION_DISCLAIMER` plus the backend preview's `notices`.
+- Show each asset's holdings separately; no summed value, P/L or returns. Average price = cost from real executions.
+- Failed purchases debit nothing and aren't retried automatically (one attempt per interval); the owner can make up a
+  retryable one. An active position with no signed purchases left can't run ("Needs signatures").
+- Statuses: position `pending · active · paused · cancelled · completed`; execution `submitted · completed · failed ·
+  skipped` (+ derived `scheduled` / `eligible`); history `deposit · swap · withdrawal · failed_execution ·
+  adjustment`. Labels, tones and failure-reason copy live only in `features/vaults/status.ts`. Backend ids are UUIDv7;
+  show `shortId()`.
 
 ## Design system (`packages/ui`)
 
@@ -146,5 +139,8 @@ for stats. Wallet-signed actions show `TxProgress` (Approve in wallet → Submit
 7. App tsconfigs target ES2020: `@repo/stellar` uses BigInt literals.
 8. Stellar Wallets Kit touches `window` on import: only import it dynamically from client code (`kit.ts`).
 9. `muted` is the text token; don't reintroduce shadcn's `--color-muted` mapping (it made secondary text invisible).
-10. No `Date.now()` during render (React Compiler purity lint); use `useNow()` (`lib/clock.ts`), which follows the
-    demo clock in mock mode.
+10. No `Date.now()` during render (React Compiler purity lint); use `useNow()` (`lib/clock.ts`).
+11. Zustand v5 selectors must return stable values: select fields one by one, never `(s) => ({ … })` (render loop).
+12. Refresh tokens are single-use: only `client.ts` refreshes, through one shared promise.
+13. The backend docs say the sign-in prefix is `"Stellar Signed Message: "`; the backend actually verifies SEP-53
+    (`"Stellar Signed Message:\n"`), which is what wallets sign. Don't "fix" the e2e script to match the docs.

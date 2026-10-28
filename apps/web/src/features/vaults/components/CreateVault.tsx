@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Pencil } from "lucide-react";
-import { SOURCE_ASSETS, TARGET_ASSETS, USDC, XLM, assetId } from "@repo/stellar/assets";
-import { FREQUENCY_SECONDS, MONTHLY_NOTE, type Frequency } from "@repo/stellar/vault";
+import { FREQUENCY_SECONDS, MONTHLY_NOTE, type AssetRef, type Frequency } from "@repo/stellar/vault";
 import { Button } from "@repo/ui/button";
 import { Segmented } from "@repo/ui/choice";
 import { Field, PillInput } from "@repo/ui/field";
@@ -17,9 +16,11 @@ import { everyLabel, money, utcDayMonth, utcTime } from "@/lib/format";
 import { vaultRoutes } from "@/lib/routes";
 import { withBasePath } from "@/lib/site";
 import { PageHeader } from "@/components/PageHeader";
-import { usePreferences } from "@/features/settings/store";
+import { ErrorState, SkeletonLines } from "@/components/states";
+import { useSettings } from "@/features/settings/hooks";
 import { useWalletBalances } from "@/features/wallet/hooks";
-import { createVaultSchema, msToUtcInput, utcInputToSeconds, type CreateVaultValues } from "@/features/vaults/schema";
+import { useAssets } from "@/features/vaults/assets";
+import { createVaultSchema, msToUtcInput, type CreateVaultValues } from "@/features/vaults/schema";
 import { useVaultDraft } from "@/features/vaults/store";
 import { AssetSelect } from "@/features/vaults/components/AssetSelect";
 import { VaultSteps } from "@/features/vaults/components/VaultSteps";
@@ -30,31 +31,61 @@ const FREQUENCIES: { value: Frequency; label: string }[] = [
 	{ value: "monthly", label: "Monthly" },
 ];
 
-const defaultName = (f: Frequency) => `The ${f === "daily" ? "daily" : f === "weekly" ? "weekly" : "monthly"} stack`;
-
-/** Screen 4 (Figma 28:12731 + Validation 40:29725). */
+/** Screen 4 (Figma 28:12731 + Validation 40:29725). Waits for the supported assets and your default slippage. */
 export function CreateVault() {
+	const assets = useAssets();
+	const settings = useSettings();
+	const header = (
+		<>
+			<PageHeader title="Create DCA Vault" subtitle="Configure a new USDC → XLM vault. This draft has not been created." />
+			<VaultSteps current={0} />
+		</>
+	);
+
+	if (assets.isError || settings.isError) {
+		return (
+			<>
+				{header}
+				<ErrorState error={assets.error ?? settings.error} onRetry={() => void Promise.all([assets.refetch(), settings.refetch()])} />
+			</>
+		);
+	}
+	if (assets.isPending || settings.isPending || !assets.data.usdc || !assets.data.xlm) {
+		return (
+			<>
+				{header}
+				<Panel aria-busy="true">
+					<SkeletonLines rows={6} />
+				</Panel>
+			</>
+		);
+	}
+	return <CreateVaultForm header={header} source={assets.data.usdc} target={assets.data.xlm} defaultSlippage={(settings.data.defaultSlippageBps / 100).toFixed(2)} />;
+}
+
+function CreateVaultForm({ header, source, target, defaultSlippage }: { header: React.ReactNode; source: AssetRef; target: AssetRef; defaultSlippage: string }) {
 	const router = useRouter();
 	const now = useNow();
 	const { draft, setDraft } = useVaultDraft();
-	const defaultSlippage = usePreferences((s) => s.defaultSlippage);
 	const wallet = useWalletBalances();
-	const [initialStart] = useState(() => msToUtcInput(Math.ceil((Date.now() + 3_600_000) / 3_600_000) * 3_600_000));
+	const [initialStart] = useState(() => msToUtcInput(Math.ceil((Date.now() + 600_000) / 300_000) * 300_000));
 
 	const form = useForm<CreateVaultValues>({
 		resolver: zodResolver(createVaultSchema),
 		mode: "onTouched",
-		defaultValues: draft ?? {
-			name: "",
-			source_asset: assetId(USDC),
-			target_asset: assetId(XLM),
-			purchase_amount: "50",
-			frequency: "weekly",
-			start: initialStart,
-			end: "",
-			max_slippage: defaultSlippage,
-			planned_deposit: "1000",
-		},
+		defaultValues:
+			draft && draft.source_asset === source.id
+				? draft
+				: {
+						source_asset: source.id,
+						target_asset: target.id,
+						purchase_amount: "5",
+						frequency: "weekly",
+						start: initialStart,
+						end: "",
+						max_slippage: defaultSlippage,
+						planned_deposit: "20",
+					},
 	});
 	const { register, control, handleSubmit, formState } = form;
 	const errors = formState.errors;
@@ -64,36 +95,31 @@ export function CreateVault() {
 	const amount = Number(values.purchase_amount) || 0;
 	const deposit = Number(values.planned_deposit) || 0;
 	const funded = amount > 0 ? Math.floor(deposit / amount) : 0;
-	const startMs = values.start ? utcInputToSeconds(values.start) * 1000 : now;
+	const startMs = values.start ? Date.parse(`${values.start}:00Z`) : now;
 
 	const submit = handleSubmit((data) => {
-		setDraft({ ...data, name: data.name || defaultName(data.frequency) });
+		setDraft(data);
 		router.push(vaultRoutes.REVIEW);
 	});
 
 	return (
 		<>
-			<PageHeader title="Create DCA Vault" subtitle="Configure a new USDC → XLM vault. This draft has not been created." />
-			<VaultSteps current={0} />
+			{header}
 
 			<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,516px)]">
 				<form onSubmit={submit} noValidate className="order-2 min-w-0 lg:order-1">
 					<Panel className="animate-rise flex flex-col gap-6" style={{ "--i": 1 } as React.CSSProperties}>
 						<h2 className="text-base">Purchase settings</h2>
 
-						<Field label="Strategy name · optional" htmlFor="name" error={errors.name?.message}>
-							<PillInput id="name" placeholder={defaultName(frequency)} maxLength={40} invalid={!!errors.name} {...register("name")} />
-						</Field>
-
 						<div className="grid gap-6 sm:grid-cols-2">
 							<Field label="Source asset" htmlFor="source_asset" error={errors.source_asset?.message}>
-								<Controller control={control} name="source_asset" render={({ field }) => <AssetSelect id="source_asset" value={field.value} onChange={field.onChange} assets={SOURCE_ASSETS} />} />
+								<Controller control={control} name="source_asset" render={({ field }) => <AssetSelect id="source_asset" value={field.value} onChange={field.onChange} assets={[source]} />} />
 							</Field>
 							<Field label="Target asset" htmlFor="target_asset" error={errors.target_asset?.message}>
 								<Controller
 									control={control}
 									name="target_asset"
-									render={({ field }) => <AssetSelect id="target_asset" value={field.value} onChange={field.onChange} assets={TARGET_ASSETS} invalid={!!errors.target_asset} />}
+									render={({ field }) => <AssetSelect id="target_asset" value={field.value} onChange={field.onChange} assets={[target]} invalid={!!errors.target_asset} />}
 								/>
 							</Field>
 						</div>
@@ -133,7 +159,11 @@ export function CreateVault() {
 							label="Planned deposit"
 							htmlFor="planned_deposit"
 							error={errors.planned_deposit?.message}
-							hint={wallet.data ? `You'll fund the vault in step 3. Wallet balance: ${money(wallet.data.usdc, assetId(USDC))}.` : "You'll fund the vault in step 3."}
+							hint={
+								wallet.data
+									? `You'll fund the vault in step 3. Wallet balance: ${wallet.data.usdc === null ? "no USDC trustline yet" : money(wallet.data.usdc, "USDC")}.`
+									: "You'll fund the vault in step 3. Used to estimate how many purchases it covers."
+							}
 						>
 							<PillInput id="planned_deposit" inputMode="decimal" autoComplete="off" invalid={!!errors.planned_deposit} trailing="USDC" {...register("planned_deposit")} />
 						</Field>

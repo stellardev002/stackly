@@ -1,22 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { TransactionType, VaultTransaction } from "@repo/stellar/vault";
 import { Button } from "@repo/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@repo/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@repo/ui/select";
 import { Chip, Panel } from "@repo/ui/surface";
 import { cn } from "@repo/ui/lib/utils";
-import { isDemoHash } from "@/components/ExplorerButton";
 import { money, utcDate, utcTime } from "@/lib/format";
 import { transactionRoutes, vaultRoutes } from "@/lib/routes";
 import { explorer } from "@/lib/stellar/config";
-import { useToast } from "@/lib/use-toast";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState, ErrorState } from "@/components/states";
-import { TRANSACTION_STATUS, TRANSACTION_TYPE } from "@/features/vaults/status";
+import { TRANSACTION_STATUS, TRANSACTION_TYPE, failureText, shortId } from "@/features/vaults/status";
+import { usePositions } from "@/features/vaults/hooks";
 import { useTransactions } from "@/features/transactions/hooks";
 
 const ALL = "all";
@@ -24,54 +22,29 @@ const ALL = "all";
 /** Screen 9 (Figma 28:11355 + Loading / Empty / Error). `vault` narrows the list to one position. */
 export function TransactionHistory({ vault }: { vault?: string }) {
 	const [type, setType] = useState<string>(ALL);
-	const [asset, setAsset] = useState<string>(ALL);
-	const [status, setStatus] = useState<string>(ALL);
-	const [from, setFrom] = useState("");
-	const [to, setTo] = useState("");
-	const [search, setSearch] = useState("");
-	const [q, setQ] = useState("");
+	const [positionId, setPositionId] = useState<string>(vault ?? ALL);
 	const [page, setPage] = useState(1);
+	const positions = usePositions();
 
-	// Search as you type, without a request per keystroke.
-	useEffect(() => {
-		const id = setTimeout(() => {
-			setQ(search.trim());
-			setPage(1);
-		}, 300);
-		return () => clearTimeout(id);
-	}, [search]);
+	const query = useTransactions({ type: type === ALL ? undefined : (type as TransactionType), positionId: positionId === ALL ? undefined : positionId, page });
 
-	const query = useTransactions({
-		type: type === ALL ? undefined : (type as TransactionType),
-		asset: asset === ALL ? undefined : asset,
-		status: status === ALL ? undefined : (status as VaultTransaction["status"]),
-		positionId: vault,
-		from: from ? `${from}T00:00:00.000Z` : undefined,
-		to: to ? `${to}T23:59:59.999Z` : undefined,
-		q: q || undefined,
-		page,
-	});
-
-	const filtered = type !== ALL || asset !== ALL || status !== ALL || !!from || !!to || !!q;
+	const filtered = type !== ALL || positionId !== ALL;
 	const reset = () => {
 		setType(ALL);
-		setAsset(ALL);
-		setStatus(ALL);
-		setFrom("");
-		setTo("");
-		setSearch("");
+		setPositionId(ALL);
 		setPage(1);
 	};
 	const changed = <T,>(set: (v: T) => void) => (v: T) => {
 		set(v);
 		setPage(1);
 	};
+	const vaultName = positions.data?.find((p) => p.id === positionId);
 
 	return (
 		<>
 			<PageHeader
 				title="Transaction History"
-				subtitle={vault ? `Deposits, swaps and withdrawals for ${vault}` : "Every deposit, swap and withdrawal across your vaults"}
+				subtitle={vaultName ? `Deposits, swaps and withdrawals for ${vaultName.name} · ${shortId(vaultName.id)}` : "Every deposit, swap and withdrawal across your vaults"}
 				action={
 					vault && (
 						<Button asChild variant="outline">
@@ -84,51 +57,14 @@ export function TransactionHistory({ vault }: { vault?: string }) {
 			/>
 
 			<Panel className="animate-rise p-4 sm:p-6">
-				<div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-					<div className="scroll-row -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0 xl:flex-nowrap">
-						<FilterSelect label="Type" value={type} onChange={changed(setType)} options={[{ value: ALL, label: "All types" }, ...Object.entries(TRANSACTION_TYPE).map(([value, label]) => ({ value, label }))]} />
-						<FilterSelect
-							label="Asset"
-							value={asset}
-							onChange={changed(setAsset)}
-							options={[
-								{ value: ALL, label: "All assets" },
-								{ value: "USDC", label: "USDC" },
-								{ value: "XLM", label: "XLM" },
-							]}
-						/>
-						<FilterSelect
-							label="Status"
-							value={status}
-							onChange={changed(setStatus)}
-							options={[
-								{ value: ALL, label: "All statuses" },
-								{ value: "confirmed", label: "Completed" },
-								{ value: "pending", label: "Pending" },
-								{ value: "failed", label: "Failed" },
-							]}
-						/>
-						<DateRange
-							from={from}
-							to={to}
-							onChange={(f, t) => {
-								setFrom(f);
-								setTo(t);
-								setPage(1);
-							}}
-						/>
-					</div>
-					<label className="flex h-11 w-full min-w-0 shrink-0 items-center gap-2 rounded-full xl:w-auto xl:flex-1 border border-line bg-white px-5 focus-within:border-coral focus-within:ring-[3px] focus-within:ring-coral/20">
-						<span className="sr-only">Search by ID or reference</span>
-						<input
-							type="search"
-							value={search}
-							onChange={(e) => setSearch(e.target.value)}
-							placeholder="Search ID or reference"
-							className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-subtle"
-						/>
-						<Search className="size-4 shrink-0 text-ink" aria-hidden />
-					</label>
+				<div className="scroll-row -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:px-0">
+					<FilterSelect label="Type" value={type} onChange={changed(setType)} options={[{ value: ALL, label: "All types" }, ...Object.entries(TRANSACTION_TYPE).map(([value, label]) => ({ value, label }))]} />
+					<FilterSelect
+						label="Vault"
+						value={positionId}
+						onChange={changed(setPositionId)}
+						options={[{ value: ALL, label: "All vaults" }, ...(positions.data ?? []).map((p) => ({ value: p.id, label: `${p.name} · ${shortId(p.id)}` }))]}
+					/>
 				</div>
 
 				<div className="mt-6" aria-live="polite" aria-busy={query.isFetching}>
@@ -147,7 +83,7 @@ export function TransactionHistory({ vault }: { vault?: string }) {
 									</Button>
 								}
 							>
-								Try another type, asset, status or date range.
+								Try another type or vault.
 							</EmptyState>
 						) : (
 							<EmptyState
@@ -165,7 +101,7 @@ export function TransactionHistory({ vault }: { vault?: string }) {
 						<div className={cn("transition-opacity duration-200", query.isPlaceholderData && "opacity-60")}>
 							<Table rows={query.data.items} />
 							<MobileList rows={query.data.items} />
-							<Pager page={query.data.meta.page} pages={query.data.meta.total_pages} total={query.data.meta.total} onPage={setPage} />
+							<Pager page={page} pages={query.data.totalPages} total={query.data.total} onPage={setPage} />
 						</div>
 					)}
 				</div>
@@ -174,27 +110,21 @@ export function TransactionHistory({ vault }: { vault?: string }) {
 	);
 }
 
+/** A failed execution's history id is the execution id; other entries are ledger rows, so they link to the vault. */
 function describe(t: VaultTransaction) {
 	const amount = money(t.amount, t.asset);
-	if (t.type === "swap" && t.counter_amount && t.counter_asset) return { main: `${amount} → ${money(t.counter_amount, t.counter_asset)}`, sub: "View execution", href: vaultRoutes.EXECUTION(t.position_id, t.execution_id ?? t.id) };
-	if (t.type === "failed_execution") return { main: `${amount} attempted`, sub: t.failure_reason ?? "No swap", href: vaultRoutes.EXECUTION(t.position_id, t.execution_id ?? t.id) };
-	if (t.type === "deposit") return { main: amount, sub: "View vault", href: vaultRoutes.VAULT(t.position_id) };
-	return { main: amount, sub: "To connected wallet", href: vaultRoutes.VAULT(t.position_id) };
+	if (t.type === "swap" && t.counter_amount && t.counter_asset) return { main: `${amount} → ${money(t.counter_amount, t.counter_asset, 4)}`, sub: "View vault", href: vaultRoutes.VAULT(t.position_id) };
+	if (t.type === "failed_execution") return { main: `${amount} attempted`, sub: failureText(t.failure_reason)?.title ?? "No swap", href: vaultRoutes.EXECUTION(t.position_id, t.id) };
+	if (t.type === "deposit") return { main: amount, sub: "Into your vault", href: vaultRoutes.VAULT(t.position_id) };
+	if (t.type === "withdrawal") return { main: amount, sub: "To your wallet", href: vaultRoutes.VAULT(t.position_id) };
+	return { main: `${t.direction === "out" ? "−" : "+"}${amount}`, sub: "Ledger correction", href: vaultRoutes.VAULT(t.position_id) };
 }
 
-function Reference({ hash }: { hash: string | null }) {
-	const toast = useToast();
+function Reference({ hash, url }: { hash: string | null; url: string | null }) {
 	if (!hash) return <span className="text-sm font-light text-subtle">No hash · not submitted</span>;
 	const short = `${hash.slice(0, 10)}…${hash.slice(-4)}`;
-	if (isDemoHash(hash)) {
-		return (
-			<button type="button" onClick={() => toast.info("Demo transaction: not on Stellar Explorer.")} className="inline-flex cursor-pointer items-center gap-1 font-mono text-sm text-muted hover:text-ink" title={hash}>
-				{short} <ArrowUpRight className="size-3" aria-hidden />
-			</button>
-		);
-	}
 	return (
-		<a href={explorer.tx(hash)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-sm text-muted hover:text-ink" title={hash}>
+		<a href={url ?? explorer.tx(hash)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-sm text-muted hover:text-ink" title={hash}>
 			{short} <ArrowUpRight className="size-3" aria-hidden />
 			<span className="sr-only">(opens Stellar Explorer)</span>
 		</a>
@@ -223,7 +153,7 @@ function Table({ rows }: { rows: VaultTransaction[] }) {
 							<tr key={`${t.id}-${t.type}`} className="animate-rise align-middle" style={{ "--i": i } as React.CSSProperties}>
 								<td className="py-5 pr-4">
 									<p className="text-lg tracking-[-0.02em]">{TRANSACTION_TYPE[t.type]}</p>
-									<p className="caption">{t.id}</p>
+									<p className="caption" title={t.id}>{shortId(t.id)}</p>
 								</td>
 								<td className="py-5 pr-4">
 									<p className="text-lg tracking-[-0.02em]">{d.main}</p>
@@ -240,7 +170,7 @@ function Table({ rows }: { rows: VaultTransaction[] }) {
 									</Chip>
 								</td>
 								<td className="py-5">
-									<Reference hash={t.tx_hash} />
+									<Reference hash={t.tx_hash} url={t.explorer_url} />
 								</td>
 							</tr>
 						);
@@ -263,7 +193,7 @@ function MobileList({ rows }: { rows: VaultTransaction[] }) {
 							<div className="min-w-0">
 								<p className="text-lg tracking-[-0.02em]">{TRANSACTION_TYPE[t.type]}</p>
 								<p className="caption">
-									{t.id} · {utcDate(t.created_at)} · {utcTime(t.created_at)} UTC
+									{shortId(t.id)} · {utcDate(t.created_at)} · {utcTime(t.created_at)} UTC
 								</p>
 							</div>
 							<Chip tone={s.tone} live={s.live}>
@@ -273,7 +203,7 @@ function MobileList({ rows }: { rows: VaultTransaction[] }) {
 						<Link href={d.href} className="text-base">
 							{d.main} <span className="caption">· {d.sub}</span>
 						</Link>
-						<Reference hash={t.tx_hash} />
+						<Reference hash={t.tx_hash} url={t.explorer_url} />
 					</li>
 				);
 			})}
@@ -317,34 +247,6 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
 	);
 }
 
-function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
-	const label = from || to ? `${from ? utcDate(`${from}T00:00:00Z`) : "Start"} – ${to ? utcDate(`${to}T00:00:00Z`) : "Today"}` : "All dates";
-	return (
-		<Popover>
-			<PopoverTrigger className={cn("flex h-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border bg-white px-5 text-base whitespace-nowrap", from || to ? "border-ink" : "border-line")}>
-				<CalendarDays className="size-4" aria-hidden /> {label}
-			</PopoverTrigger>
-			<PopoverContent align="start" className="w-[300px] rounded-card border-line bg-white p-4">
-				<p className="text-base">Date range · UTC</p>
-				<div className="mt-3 grid grid-cols-2 gap-3">
-					<label className="flex flex-col gap-1 text-sm font-light text-muted">
-						From
-						<input type="date" value={from} max={to || undefined} onChange={(e) => onChange(e.target.value, to)} className="h-10 rounded-full border border-line px-3 text-ink" />
-					</label>
-					<label className="flex flex-col gap-1 text-sm font-light text-muted">
-						To
-						<input type="date" value={to} min={from || undefined} onChange={(e) => onChange(from, e.target.value)} className="h-10 rounded-full border border-line px-3 text-ink" />
-					</label>
-				</div>
-				{(from || to) && (
-					<Button variant="ghost" size="sm" className="mt-3" onClick={() => onChange("", "")}>
-						Clear dates
-					</Button>
-				)}
-			</PopoverContent>
-		</Popover>
-	);
-}
 
 function HistorySkeleton() {
 	return (

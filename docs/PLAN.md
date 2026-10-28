@@ -1,104 +1,74 @@
-# Stackly MVP — Sprint 1 plan
+# Stackly MVP: Sprint 1 plan
 
-Source: the PRD (Google Doc linked from CLAUDE.md). This file tracks scope, where each piece lives, and what's done.
+Source: the PRD (linked from CLAUDE.md). Backend: https://api.usestackly.app/docs (built by the backend developer;
+this repo is the frontend). Design: Figma, see [DESIGN-PLAN.md](DESIGN-PLAN.md).
 
-**Definition of done (PRD §22):** a user connects a Stellar wallet, creates a DCA position, deposits test USDC into the
-Soroban vault, and observes **at least two distinct scheduled swap executions triggered by the keeper**. The contract
-enforces amounts, intervals, supported assets and withdrawal permissions; the user can pause/resume, see holdings and
-withdraw. Priority: Vault Funding → DCA Configuration → Keeper Trigger → Contract Validation → Swap Execution →
-Portfolio Update, on one pair (Testnet USDC → XLM).
+**Definition of done (PRD §22):** a user connects a Stellar wallet, creates a DCA position, deposits test USDC into
+their vault, and observes at least two distinct scheduled purchases run by the keeper. Purchase amounts, intervals,
+supported assets and withdrawal permissions are enforced; the user can pause / resume, see holdings and withdraw.
 
-## Architecture
+## Architecture (accepted 2026-10-28)
+
+The backend replaces the PRD's Soroban vault contract with classic Stellar accounts, and this was accepted:
 
 ```
- Browser (apps/web)                       Stellar Testnet                       Off-chain
- ─────────────────                        ───────────────                       ─────────
- Wallets Kit ── signs ──► create/deposit/ ──► dca-vault ──swap──► swap-adapter
-                          pause/withdraw         │  events
- read API (/api/v1) ◄── Supabase ◄── indexer ◄───┘                apps/keeper
-                                     keeper ── execute(id, interval) ──► dca-vault
+ Browser (apps/web)                         Stellar Testnet                        Backend (api.usestackly.app)
+ Wallets Kit ── signMessage ─────────────────────────────────────────────────────► /auth (JWT)
+           ── signs payment ──► position account (wallet = only signer) ◄── created + reserve funded by /account
+           ── signs batch ────► adds pre-authorized swap hashes as signers ◄── prepared by /authorizations
+                                position account ──path payment──► Stellar DEX ◄── keeper submits each due swap
+ /app/api/v1 (Next proxy) ──────────────────────────────────────────────────────► /v1 reads + state changes
 ```
 
-- The **contract** is the source of truth and enforces every rule. The database is a cache the indexer reconciles.
-- The **keeper** holds one key, which can only call `execute`. It never sees user keys.
-- The **web app** reads through its own `/api/v1` route handlers and writes through the user's wallet.
+- Each pre-signed purchase fixes amount, minimum output, destination and earliest time on chain, so the keeper can
+  only submit what the owner signed: no changed amounts, no redirect, no early run, no double run (sequence numbers).
+- **Differences from the PRD, accepted:** no Soroban contract (no contract ID or contract unit tests); pause, resume
+  and cancel are enforced by the backend, not the chain (signed purchases stay valid until used or their signers are
+  removed); a failed purchase isn't retried automatically, the owner can make up a retryable one with a fresh
+  signature; at most 19 unused signed purchases per position, so long schedules need re-signing ("Sign more").
+- Removed from this repo on acceptance: `contracts/`, `apps/keeper`, `supabase/`, and the mock backend
+  (`packages/mock-api`, demo controls). All are in git history (initial commit).
 
-## Screens → routes
+## Screens → routes (live data)
 
-Design (Figma), build order and PRD-vs-design gaps: [DESIGN-PLAN.md](DESIGN-PLAN.md).
-
-| PRD screen | Route | Status |
+| PRD screen | Route | Backend |
 |---|---|---|
-All screens are built to the Figma design on mock data, desktop and mobile, with their loading / empty / error /
-validation states and the pending + success states the design lacked. Live data needs Module 4 (writes) and Module 7
-(reads).
+| 1 Landing | `apps/landing` `/` | — |
+| 2 Wallet connection + sign-in | modal over `/overview` | `/auth/challenge`, `/auth/login`, `/auth/refresh`, `/auth/logout` |
+| 3 Dashboard | `/overview` | `/dca-positions` (+ `/balance` each), `/portfolio`, `/dashboard`, `/executions` per position |
+| 4 Create DCA vault | `/vaults/create` | `/assets`, `/settings` (default slippage) |
+| 5 Review strategy | `/vaults/create/review` | `/dca-positions/preview`; confirm → `POST /dca-positions` + `/account` |
+| 6 Deposit + sign purchases | `/vaults/[id]/deposit` (`?flow=create`) | `/stellar/balances`, wallet payment → `/ledger/sync`, `/authorizations` (+ `/sync`), `/activate` |
+| 7 Position | `/vaults/[id]` | `/dca-positions/{id}`, `/balance`, `/account`, `/executions`, `/pause`, `/resume`, `/cancel`, `/authorizations` |
+| 8 Execution | `/vaults/[id]/executions/[eid]` | `/executions/{id}`, `/retry-missed` |
+| 9 History | `/transactions` (`?vault=`) | `/history` (type + position filters, offset paging) |
+| 10 Portfolio | `/portfolio` | `/portfolio`, `/dashboard` |
+| 11 Withdraw | `/vaults/[id]/withdraw` | `/withdrawals` → wallet signs + submits → `/ledger/sync` |
+| 12 Settings | `/settings` | `GET/PATCH /settings` |
+| — Notifications | bell in the top bar | `/notifications`, `/unread-count`, `/read-all` |
 
-| PRD screen | Route | Status |
-|---|---|---|
-| 1 Landing | `apps/landing` `/` | Built (+ supported assets, how it works, purchase preview, vault explainer, JSON-LD) |
-| 2 Wallet Connection | modal over `/overview` (`/connect` redirects) | Built: picker, connecting, not detected, rejected, connected |
-| 3 Main Dashboard | `/overview` | Built; "Active strategies" lists every vault incl. paused / not started |
-| 4 Create DCA Vault | `/vaults/create` | Built (+ name, planned deposit, 30-day note) |
-| 5 Review DCA Strategy | `/vaults/create/review` | Built; Confirm is a signed create with progress |
-| 6 Deposit Funds | `/vaults/[vaultId]/deposit` (`?flow=create`) | Built (+ confirmed state, Explorer, signed "Start schedule") |
-| 7 Active DCA Position | `/vaults/[vaultId]` | Built (+ paused state, Resume, low-balance warning) |
-| 8 Swap Execution Details | `/vaults/[vaultId]/executions/[executionId]` | Built for all six statuses, timeline |
-| 9 Transaction History | `/transactions` (`?vault=`) | Built: type / asset / status / date / search filters, table + mobile cards |
-| 10 Portfolio Overview | `/portfolio` | Built (units and execution prices only) |
-| 11 Withdraw Funds | `/vaults/[vaultId]/withdraw` | Built (+ review toggle, confirmed state) |
-| 12 Settings | `/settings` | Built (+ network row; preferences stored locally) |
+UI changes made for the backend: sign-in step in the connect modal; Review shows the live quote, purchase estimate,
+fees and the backend's notices; "Confirm" creates the position and its account (no signature); Deposit adds wallet
+readiness (Friendbot, USDC trustline, Circle faucet) and "Sign N purchases & start"; Position shows the vault account,
+signed purchases left, "Sign more", cancel; Execution shows failure reasons and "Make up purchase"; History filters
+are type and vault only; Settings saves slippage and six notification types to the account; strategy names are
+derived ("Weekly USDC → XLM") and ids shown short (`#A1B2C3`).
 
-## Modules
+## Status
 
-### Module 1 — DCA vault contract (`contracts/dca-vault`)
-- [x] Interface, types, error codes, event table, test list (`src/test.rs`, all `#[ignore]`)
-- [ ] Storage + `initialize`, `add_pair`, `create_position`, `deposit`, `activate`/`pause`/`resume`
-- [ ] `execute` with interval, duplicate, balance and slippage enforcement; balances untouched on a failed swap
-- [ ] `withdraw` (owner only, ≤ available, to owner)
-- [ ] Events; unit tests for every PRD §19 contract scenario
-- [ ] Testnet deployment; record the contract id here
+- [x] Frontend on the live API, every screen; `pnpm --filter web e2e:live` passes (see docs/TESTING.md)
+- [x] Deployed routing: https://usestackly.app (landing) and /app (the app), same-origin API proxy
+- [ ] Freighter run-through by a person (sign-in, deposit, sign purchases, withdraw) on the deployed app
+- [ ] Two keeper purchases on one position (DoD): use a short interval in a test position or wait a day
 
-### Module 2 — Swap integration (`contracts/swap-adapter`)
-- [ ] **Decision needed:** verify a Soroban DEX router on Testnet supports contract-to-contract USDC→XLM swaps with
-      usable liquidity. If yes, the adapter forwards to it; if not, deploy a labelled Testnet liquidity adapter and
-      document the limitation here (PRD §11).
-- [ ] `quote`, `swap` (fails without moving funds below `min_out`), `kind`
+## For the backend developer
 
-### Module 3 — Keeper (`apps/keeper`)
-- [x] Loop, config, idempotent claim per (position, interval), result recording
-- [ ] `executeOnChain` via `@stellar/stellar-sdk`; retry policy for `RetryableError`
-- [ ] Hosting (PRD: "Keeper Hosting", separate from Vercel)
-
-### Module 4 — Wallet & vault integration (`apps/web/src/features`)
-- [x] Wallets Kit connection, persisted wallet, `WalletGate`
-- [x] `VaultClient` seam with the mock implementation
-- [ ] Live `VaultClient`: contract bindings (`stellar contract bindings typescript`), sign, submit, confirm, tx hash
-- [ ] Wallet balances from Horizon in live mode
-
-### Module 5 — Dashboard · Module 6 — Portfolio
-- [x] Query hooks for positions, executions, transactions, portfolio, clock
-- [x] Screens, on mock data (see the table above)
-
-### Backend contract for the API developer
-The web app reads these endpoints under `/api/v1` (`apiRoutes` in `apps/web/src/lib/routes.ts`); the response shapes
-are exactly what `packages/mock-api/src/handlers/*` return, wrapped in `{ status_code, message, data }`:
-`GET /clock` · `GET /wallets/:address` · `GET /positions?owner=` · `GET /positions/:id` · `GET /positions/:id/executions`
-· `GET /executions?owner=&limit=` · `GET /executions/:id` · `GET /transactions?owner&type&status&asset&position_id&from&to&q&page&limit`
-(→ `{ items, meta }`) · `GET /portfolio?owner=`. Types: `packages/stellar/src/vault.ts`. Writes are contract calls
-(`VaultClient`), not endpoints.
-
-### Module 7 — Monitoring / indexer
-- [x] Database schema (`supabase/migrations/0001_init.sql`)
-- [ ] Event indexer + reconciliation (`apps/keeper/src/indexer.ts`)
-- [ ] `/api/v1` route handlers replacing the 501 catch-all
-
-## Open decisions
-
-1. **Swap mechanism** (Module 2, above). Blocks Module 1's `execute`.
-2. **Dependency versions**: `@stellar/stellar-sdk`, `@creit.tech/stellar-wallets-kit`, `@supabase/supabase-js` and
-   `soroban-sdk` ranges were set at scaffold time without network access to npm/crates.io; confirm on first install.
-3. **Keeper host** (Railway, Fly, a VPS…).
-4. **Domains** for landing and app (set `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL`, extend `vercel.json`).
+- Docs say the sign-in message is hashed with `"Stellar Signed Message: "`; the server (correctly) uses SEP-53's
+  `"Stellar Signed Message:\n"`. Fix the docs.
+- No CORS for browser origins (the app proxies, so not blocking). `/health` requires auth.
+- Nice to have: `GET /executions?limit=` across positions (the dashboard fans out per position), balances inside
+  `DcaPositionDto` (avoids one `/balance` call per position), a display reference and an optional strategy name,
+  history filters for status / asset / date.
 
 ## Out of scope (PRD §20)
 

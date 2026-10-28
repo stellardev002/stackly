@@ -9,6 +9,14 @@ export function toStroops(amount: string): bigint {
 	return BigInt(whole || "0") * SCALE + BigInt(fraction.padEnd(ASSET_DECIMALS, "0"));
 }
 
+/** A backend decimal string ("-5.0000000", "20.1493713") → stroop string ("-50000000"). Null stays null. */
+export function decimalToStroops(value: string | null | undefined): string {
+	if (value == null || value === "") return "0";
+	const negative = value.trim().startsWith("-");
+	const stroops = toStroops(value.trim().replace(/^[-+]/, ""));
+	return (negative ? -stroops : stroops).toString();
+}
+
 /** 125000000n → "12.5". Exact, no grouping: for inputs and maths. */
 export function fromStroops(stroops: bigint | string): string {
 	const value = BigInt(stroops);

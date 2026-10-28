@@ -28,11 +28,6 @@ out/
 build
 dist
 
-# Soroban / Rust
-contracts/target/
-contracts/.soroban/
-contracts/.stellar/
-*.wasm
 
 # Debug
 npm-debug.log*

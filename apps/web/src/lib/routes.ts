@@ -42,15 +42,3 @@ export const settingsRoutes = {
 	SETTINGS: "/settings",
 };
 
-/** The read API (src/app/api/v1 in live mode, @repo/mock-api in mock mode). */
-export const apiRoutes = {
-	CLOCK: "/clock",
-	WALLET: (address: string) => `/wallets/${address}`,
-	POSITIONS: "/positions",
-	POSITION: (id: string) => `/positions/${id}`,
-	POSITION_EXECUTIONS: (id: string) => `/positions/${id}/executions`,
-	EXECUTIONS: "/executions",
-	EXECUTION: (id: string) => `/executions/${id}`,
-	TRANSACTIONS: "/transactions",
-	PORTFOLIO: "/portfolio",
-};
