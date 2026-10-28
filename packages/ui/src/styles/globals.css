@@ -1,0 +1,331 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* ---------------------------------------------------------------------- */
+/* Stackly design tokens (Figma "STACKLY", 2026-10). Shared by every app.  */
+/*   ink   #270C0F  text, dark buttons          coral #FF6173  accent, CTA */
+/*   night #0E0405  stat cards                  blush #FFEFF1  notices     */
+/*   rose  #FFCED4  chips, borders              page  #FAFAFA  app ground  */
+/* Font: Source Sans 3 (self-hosted via @fontsource, imported per app).    */
+/* Use the token names, never hex, in components.                          */
+/* ---------------------------------------------------------------------- */
+
+@theme {
+	--font-sans: "Source Sans 3", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+	--color-ink: #270c0f;
+	--color-ink-soft: #4b2a2f;
+	--color-night: #0e0405;
+	--color-coral: #ff6173;
+	--color-coral-strong: #f04a5e;
+	/* Coral dark enough for small text on white (≥ 4.5:1). */
+	--color-coral-ink: #c42b40;
+	--color-blush: #ffeff1;
+	--color-rose: #ffced4;
+	--color-peach: #ffefe8;
+	--color-muted: #7c6e70;
+	--color-subtle: #a59a9c;
+	--color-line: #ebe5e6;
+	--color-page: #fafafa;
+	--color-wine: #5a2129;
+
+	--color-success: #15803d;
+	--color-success-bg: #dcfce7;
+	--color-warning: #8a5300;
+	--color-warning-bg: #ffefe8;
+	--color-danger: #c42b40;
+	--color-danger-bg: #ffeff1;
+
+	--radius-card: 14px;
+	--radius-panel: 24px;
+
+	--ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* shadcn primitives (dialog, select, sonner…) read these. */
+:root {
+	--radius: 14px;
+	--background: #ffffff;
+	--foreground: #270c0f;
+	--card: #ffffff;
+	--card-foreground: #270c0f;
+	--popover: #ffffff;
+	--popover-foreground: #270c0f;
+	--primary: #270c0f;
+	--primary-foreground: #ffffff;
+	--secondary: #ffeff1;
+	--secondary-foreground: #270c0f;
+	--muted: #fafafa;
+	--muted-foreground: #7c6e70;
+	--accent: #ffeff1;
+	--accent-foreground: #270c0f;
+	--destructive: #c42b40;
+	--border: #ebe5e6;
+	--input: #ebe5e6;
+	--ring: #ff6173;
+}
+
+@theme inline {
+	--radius-sm: calc(var(--radius) - 6px);
+	--radius-md: calc(var(--radius) - 4px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 6px);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	/* `muted` is Stackly's text token (@theme above); shadcn's muted surface is `bg-page`. */
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/60;
+	}
+	html {
+		scroll-behavior: smooth;
+		-webkit-text-size-adjust: 100%;
+	}
+	body {
+		@apply bg-page font-sans text-ink antialiased;
+		overflow-x: hidden;
+		font-feature-settings: "kern", "liga", "tnum" 0;
+	}
+	:focus-visible {
+		outline: 2px solid var(--color-coral);
+		outline-offset: 2px;
+	}
+	::selection {
+		background: var(--color-rose);
+		color: var(--color-ink);
+	}
+}
+
+/* ---------------------------------------------------------------------- */
+/* Layout + type scale (Figma: 96 / 56 / 32 / 24 / 20 / 16 / 14 / 12).      */
+/* ---------------------------------------------------------------------- */
+
+@utility app-container {
+	@apply mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-10;
+}
+
+@utility landing-container {
+	@apply mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-7;
+}
+
+/* Tight, slightly negative tracking is the brand's voice for headings. */
+@utility display {
+	@apply text-[44px] leading-[0.95] tracking-[-0.05em] sm:text-[64px] lg:text-[96px] lg:leading-[0.76];
+}
+@utility h-page {
+	@apply text-[36px] leading-[1.05] tracking-[-0.06em] sm:text-[44px] lg:text-[56px];
+}
+@utility h-section {
+	@apply text-[28px] leading-[1.05] tracking-[-0.04em] sm:text-[32px];
+}
+@utility h-card {
+	@apply text-[20px] leading-[1.1] tracking-[-0.03em] sm:text-[24px];
+}
+@utility stat-value {
+	@apply text-[36px] leading-none tracking-[-0.06em] tabular-nums sm:text-[44px] lg:text-[56px];
+}
+/* Regular weight: at 12px the light weight loses thin glyphs (the hyphen in "EX-004"). */
+@utility caption {
+	@apply text-xs leading-4 text-muted;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Motion. Calm and deliberate, for money moving on a schedule: short       */
+/* distances, soft deceleration. Loops only while waiting on the network     */
+/* or the wallet. Everything is off for prefers-reduced-motion.              */
+/*   .animate-rise    fade + lift; stagger with style={{ "--i": n }}         */
+/*   .animate-page    route enter (every template.tsx)                       */
+/*   .animate-pop     a settled result (confirmed, copied)                    */
+/*   .animate-signal  soft ring around a live status (submitted, signing)     */
+/*   .animate-check   draws an SVG check once                                 */
+/*   .animate-stack   the three-layer Stackly mark building itself (loaders)  */
+/*   .reveal          landing scroll reveal (data-visible set by an observer) */
+/*   .shimmer         skeleton sweep                                          */
+/* ---------------------------------------------------------------------- */
+
+@keyframes rise {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes page-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+@keyframes pop {
+	0% {
+		opacity: 0;
+		transform: scale(0.92);
+	}
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+@keyframes signal {
+	0% {
+		box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 35%, transparent);
+	}
+	70%,
+	100% {
+		box-shadow: 0 0 0 10px color-mix(in oklab, currentColor 0%, transparent);
+	}
+}
+@keyframes check {
+	from {
+		stroke-dashoffset: 24;
+	}
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+/* One layer drops onto the stack, holds, then the stack resets. */
+@keyframes stack-drop {
+	0% {
+		opacity: 0;
+		transform: translateY(-14px);
+	}
+	18%,
+	80% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(0);
+	}
+}
+@keyframes shimmer {
+	from {
+		background-position: 150% 0;
+	}
+	to {
+		background-position: -50% 0;
+	}
+}
+@keyframes float {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-8px);
+	}
+}
+@keyframes progress-indeterminate {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(250%);
+	}
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.shimmer {
+	background: linear-gradient(90deg, #f3eeef 25%, #faf6f7 37%, #f3eeef 63%);
+	background-size: 400% 100%;
+}
+.reveal {
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.animate-rise {
+		animation: rise 0.5s var(--ease-settle) both;
+		animation-delay: calc(var(--i, 0) * 60ms);
+	}
+	.animate-page {
+		animation: page-in 0.4s var(--ease-settle) both;
+	}
+	.animate-pop {
+		animation: pop 0.32s var(--ease-settle) both;
+	}
+	.animate-signal {
+		animation: signal 1.8s ease-out infinite;
+	}
+	.animate-check {
+		stroke-dasharray: 24;
+		animation: check 0.5s 0.15s var(--ease-settle) both;
+	}
+	.animate-float {
+		animation: float 6s ease-in-out infinite;
+	}
+	.animate-spin-slow {
+		animation: spin 0.9s linear infinite;
+	}
+	.animate-progress {
+		animation: progress-indeterminate 1.4s ease-in-out infinite;
+	}
+	.shimmer {
+		animation: shimmer 1.6s ease-in-out infinite;
+	}
+	.animate-stack > .stack-layer {
+		animation: stack-drop 1.8s var(--ease-settle) infinite both;
+	}
+	.animate-stack > .stack-layer:nth-child(1) {
+		animation-delay: 0.36s;
+	}
+	.animate-stack > .stack-layer:nth-child(2) {
+		animation-delay: 0.18s;
+	}
+	.animate-stack > .stack-layer:nth-child(3) {
+		animation-delay: 0s;
+	}
+	.reveal {
+		opacity: 0;
+		transform: translateY(24px);
+		transition:
+			opacity 0.7s var(--ease-settle),
+			transform 0.7s var(--ease-settle);
+		transition-delay: calc(var(--i, 0) * 80ms);
+	}
+	.reveal[data-visible="true"] {
+		opacity: 1;
+		transform: none;
+	}
+	/* Radix dialogs, sheets and popovers enter via tw-animate-css; give them the same curve. */
+	[data-state="open"][data-slot$="content"] {
+		animation-timing-function: var(--ease-settle);
+	}
+}
+
+/* Thin scrollbars on horizontally scrolling rows (nav tabs, tables). */
+.scroll-row {
+	scrollbar-width: none;
+}
+.scroll-row::-webkit-scrollbar {
+	display: none;
+}

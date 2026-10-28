@@ -1,0 +1,25 @@
+{
+  "name": "@repo/mock-api",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "check-types": "tsc --noEmit",
+    "check:flow": "tsx scripts/flow-check.mts"
+  },
+  "dependencies": {
+    "@repo/stellar": "workspace:*",
+    "axios": "^1.20.0"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.12.0",
+    "tsx": "^4.20.0",
+    "typescript": "^7.0.2"
+  }
+}

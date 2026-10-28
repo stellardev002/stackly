@@ -1,0 +1,17 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  core-js: false
+  esbuild: true
+  sharp: false
+  unrs-resolver: false
+  # Native add-ons pulled in by Stellar Wallets Kit (hardware wallets, WalletConnect). Each has a JS
+  # fallback or is Node-only; the browser app doesn't need them compiled.
+  blake-hash: false
+  bufferutil: false
+  protobufjs: false
+  secp256k1: false
+  tiny-secp256k1: false
+  usb: false
+  utf-8-validate: false
