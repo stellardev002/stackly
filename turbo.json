@@ -5,7 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "env": ["VERCEL", "VERCEL_ENV", "VERCEL_URL", "APP_BASE_PATH", "API_PROXY_TARGET", "NEXT_PUBLIC_*"],
+      "env": ["VERCEL", "VERCEL_ENV", "VERCEL_URL", "APP_BASE_PATH", "ADMIN_BASE_PATH", "API_PROXY_TARGET", "NEXT_PUBLIC_*"],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
     },
     "lint": {

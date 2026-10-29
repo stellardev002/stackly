@@ -20,6 +20,7 @@ Turborepo + pnpm 12 (`packageManager`), Node ≥ 22.
 ```
 apps/landing/       (:3002) public site, PRD Screen 1
 apps/web/           (:3000) the app, Screens 2–12: /overview (+ wallet modal), /vaults/*, /transactions, /portfolio, /settings
+apps/admin/         (:3001) operations dashboard: overview, users, positions, purchases, ledger, reconciliation, audit, system
 packages/ui/        @repo/ui — design tokens, shadcn components, motion, fonts, the social card
 packages/stellar/   @repo/stellar — network constants, assets, the UI data model (vault.ts), stroop formatting
 packages/eslint-config, packages/typescript-config
@@ -30,13 +31,14 @@ packages/eslint-config, packages/typescript-config
 
 ## Deployment (Vercel Services)
 
-One Vercel project, routed by the root `vercel.json`: `/app` and `/app/*` → `apps/web`, everything else →
+One Vercel project, routed by the root `vercel.json`: `/app` and `/app/*` → `apps/web`, `/admin` and `/admin/*` →
+`apps/admin` (`basePath: "/admin"` on Vercel; `ADMIN_BASE_PATH=""` for its own domain), everything else →
 `apps/landing`. Production: **https://usestackly.app** (landing) · https://usestackly.app/app (the app); dev host
 https://stackly-topaz.vercel.app. `apps/web` sets `basePath: "/app"` on every Vercel build (`VERCEL` is set); set
 `APP_BASE_PATH=""` once the app has its own domain. `src/lib/site.ts` in each app picks https://usestackly.app in
 production for canonical / OG URLs. Landing links into the app with plain `<a>`s to `APP_URL` (`/app`) and redirects
 bare app paths (`/overview`, `/vaults/*`…) to `/app/…`. Turborepo only passes declared env vars to builds: keep
-`VERCEL`, `APP_BASE_PATH` and `API_PROXY_TARGET` in `turbo.json`.
+`VERCEL`, `APP_BASE_PATH`, `ADMIN_BASE_PATH` and `API_PROXY_TARGET` in `turbo.json`.
 
 ## Stack
 
@@ -78,6 +80,17 @@ Query, zustand, react-hook-form + zod 4, axios, lucide, sonner, recharts 2, `@st
   and open-explorer are local (`stackly-preferences`). Notifications: `GET /notifications` (bell + `Notifier` toasts).
 - **Amounts** are stroop strings in the UI; the backend takes and returns 7-decimal strings. Convert only at the edges
   (`decimalToStroops` in adapters, `decimal()` in `vaults/client.ts`); never do money maths in floating point.
+
+## Admin (`apps/admin`)
+
+- Backend routes tagged Admin · Reconciliation · Audit (`/admin/*`, `/reconciliation*`, `/audit-logs*`) plus `/health`
+  (proxied at `<basePath>/api/health`). Shapes in `src/lib/api/dto.ts`, one function per route in `endpoints.ts`.
+- Sign-in is the same wallet flow as the app (Varial extension / Varial Mobile / xBull, a small `features/wallet/kit.ts`;
+  sign message only), session in `stackly-admin-session`. `AdminGate` lets only `GET /auth/me` `role: "admin"` through;
+  admins are promoted by another admin (`PATCH /admin/users/{id}/role`) or `ADMIN_WALLET_ADDRESSES` on the backend.
+- List filters live in the URL (route files read `searchParams`, `lib/params.ts`); `DataList` renders a table from `md`
+  (`xl` for > 6 columns) and stacked cards below; filters fold behind a button on phones. Sidebar from `lg`, drawer below.
+- Writes: role change, keeper / indexer run, ledger repair (books `adjustment` rows, moves no funds): always confirmed.
 
 ## Domain rules (PRD, as implemented by the backend)
 

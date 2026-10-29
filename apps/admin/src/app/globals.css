@@ -1,0 +1,11 @@
+@import "@repo/ui/globals.css";
+
+/* Let Tailwind scan the shared UI package for the utility classes it uses,
+   since those components live in a separate workspace package. */
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";
+
+/* WalletConnect's modal (Reown AppKit) mounts on <body>. Only while it's open: closed, it stays in the DOM as a
+   full-screen layer and would swallow every click. */
+w3m-modal.open {
+	pointer-events: auto;
+}
