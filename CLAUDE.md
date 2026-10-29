@@ -64,10 +64,14 @@ Query, zustand, react-hook-form + zod 4, axios, lucide, sonner, recharts 2, `@st
   withdraw = `POST …/withdrawals` → sign + submit → ledger sync; make up a missed purchase = `POST …/retry-missed` +
   a fresh signed batch; USDC trustline = `changeTrust` signed by the wallet. Horizon result codes become readable
   errors (`TrustlineMissingError`, `InsufficientFundsError`). Mutations never auto-retry.
-- **Wallet** (`features/wallet/kit.ts`): Stellar Wallets Kit v2, lazy-imported, Testnet only (refuses another network):
-  Freighter, Freighter Mobile (WalletConnect → Reown AppKit, project id `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`; needs
-  HTTPS), xBull. Every wallet must support `signMessage` (sign-in), so no Albedo / Rabet. `walletSigner(address)` is the `Signer` for flows. Never request, store, log or render a
-  secret key.
+- **Wallet** (`features/wallet/kit.ts`): Stellar Wallets Kit v2, lazy-imported, Testnet only (refuses another network).
+  Varial (formerly Freighter, https://docs.varialwallet.com; kit ids keep `freighter`) is recommended. Desktop: the
+  Varial extension (install prompt when missing), Varial Mobile by QR (WalletConnect → Reown AppKit, project id
+  `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`; needs HTTPS), xBull. Phones: Varial Mobile only; Stackly opens the app
+  (`freighterwallet://wc-redirect/wc?uri=…`) and, if the page is still in front after ~2.5 s, offers the App Store /
+  Play link (no browser can tell whether an app is installed). Inside Varial's in-app browser (`window.stellar.platform
+  === "mobile"`) only Varial is offered. Every wallet must support `signMessage` (sign-in), so no Albedo / Rabet.
+  `walletSigner(address)` is the `Signer` for flows. Never request, store, log or render a secret key.
 - `useVaultTx()` stages: `signing → submitting → confirmed`, or `rejected` (declined, nothing sent) / `failed`; it
   invalidates every affected query. Actions without a signature call `onSigned` immediately.
 - **Settings**: default slippage and muted notifications are server-side (`GET/PATCH /settings`); review-before-sign

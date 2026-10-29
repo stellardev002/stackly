@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowRight, ArrowUpRight, Check, KeyRound } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, ArrowUpRight, Check, ExternalLink, KeyRound } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@repo/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@repo/ui/dialog";
@@ -13,7 +13,18 @@ import { publicApi } from "@/lib/api/client";
 import { errorMessage, isWalletRejection } from "@/lib/api/errors";
 import { shortKey } from "@/lib/stellar/config";
 import { useSession } from "@/features/auth/store";
-import { INSTALL_URL, connectWallet, listWallets, signMessage, type WalletId, type WalletOption } from "@/features/wallet/kit";
+import {
+	VARIAL_STORES,
+	connectWallet,
+	detectPlatform,
+	listWallets,
+	openWalletApp,
+	signMessage,
+	varialAppStoreUrl,
+	type Platform,
+	type WalletId,
+	type WalletOption,
+} from "@/features/wallet/kit";
 import { useWalletStore } from "@/features/wallet/store";
 import { isFundedOnTestnet } from "@/features/wallet/testnet";
 import { WalletIcon } from "@/features/wallet/components/WalletIcon";
@@ -31,6 +42,9 @@ type Phase =
  * Screen 2: wallet connection, a modal over the dashboard (Figma 28:13768 and its Loading / Empty / Error frames).
  * Two wallet steps: connect (share the address), then sign in (sign the backend's one-time message, which proves
  * ownership; no transaction, no fee). With `resume`, the wallet is already connected and only signs in again.
+ *
+ * Desktop offers the Varial extension (with an install prompt when it's missing) and Varial Mobile by QR code. Phones
+ * offer Varial Mobile only: Stackly opens the app, and if it doesn't open (most likely not installed) offers the store.
  */
 export function ConnectModal({ open, resume }: { open: boolean; resume?: { address: string; walletId: WalletId } }) {
 	const queryClient = useQueryClient();
@@ -39,6 +53,10 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 	const [wallets, setWallets] = useState<WalletOption[] | null>(null);
 	const [selected, setSelected] = useState<WalletId>(resume?.walletId ?? "freighter");
 	const [phase, setPhase] = useState<Phase>({ name: "idle" });
+	const [platform, setPlatform] = useState<Platform>("desktop");
+	/** Set when Varial didn't open on this phone; `retry` opens it again with the same pairing. */
+	const [appMissing, setAppMissing] = useState<{ retry: () => void } | null>(null);
+	const connection = useRef<AbortController | null>(null);
 
 	useEffect(() => {
 		if (!open) return;
@@ -46,9 +64,11 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 		listWallets()
 			.then((list) => {
 				if (cancelled) return;
+				setPlatform(detectPlatform());
 				setWallets(list);
 				const firstAvailable = list.find((w) => w.available);
-				if (firstAvailable && !resume) setSelected((current) => (list.find((w) => w.id === current)?.available ? current : firstAvailable.id));
+				if (firstAvailable && !resume)
+					setSelected((current) => (list.find((w) => w.id === current)?.available ? current : firstAvailable.id));
 			})
 			.catch(() => !cancelled && setWallets([]));
 		return () => {
@@ -60,6 +80,11 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 	const current = wallets?.find((w) => w.id === selected);
 	const walletName = current?.name ?? "your wallet";
 	const busy = phase.name === "connecting" || phase.name === "signing";
+	const onPhone = platform !== "desktop";
+	const viaApp = onPhone && (resume?.walletId ?? selected) === "wallet_connect";
+	const extension = wallets?.find((w) => w.id === "freighter");
+	const extensionMissing = !onPhone && !resume && !!extension && !extension.available;
+	const storeName = platform === "ios" ? "the App Store" : platform === "android" ? "Google Play" : "varialwallet.com";
 
 	const signIn = async (address: string) => {
 		setPhase({ name: "signing", address });
@@ -74,14 +99,28 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 		try {
 			if (!address) {
 				setPhase({ name: "connecting" });
-				address = await connectWallet(selected);
+				setAppMissing(null);
+				connection.current = new AbortController();
+				address = await connectWallet(selected, {
+					signal: connection.current.signal,
+					onAppNotOpened: (retry) => setAppMissing({ retry }),
+				});
+				setAppMissing(null);
 			}
 			await signIn(address);
 		} catch (error) {
+			setAppMissing(null);
 			if (isWalletRejection(error)) setPhase({ name: "rejected", message: errorMessage(error), address });
-			else setPhase({ name: "failed", message: errorMessage(error, "The wallet didn't respond. Check it's unlocked and set to Testnet."), address });
+			else
+				setPhase({
+					name: "failed",
+					message: errorMessage(error, "The wallet didn't respond. Check it's unlocked and set to Testnet."),
+					address,
+				});
 		}
 	};
+
+	const cancel = () => connection.current?.abort();
 
 	const finish = () => {
 		if (phase.name !== "connected") return;
@@ -100,7 +139,9 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 				className="max-h-[calc(100dvh-2rem)] gap-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-panel border-0 bg-white p-5 shadow-[0_32px_80px_-24px_rgba(14,4,5,0.45)] sm:max-w-[690px] sm:p-8"
 			>
 				<div className="flex flex-wrap items-start justify-between gap-3">
-					<DialogTitle className="text-[34px] leading-[1.05] font-normal tracking-[-0.05em] text-ink sm:text-[44px]">{title}</DialogTitle>
+					<DialogTitle className="text-[34px] leading-[1.05] font-normal tracking-[-0.05em] text-ink sm:text-[44px]">
+						{title}
+					</DialogTitle>
 					<Chip tone="warning">Stellar Testnet</Chip>
 				</div>
 				<DialogDescription className="mt-2 text-base font-light text-muted">
@@ -116,7 +157,14 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 						<div className="flex items-center gap-4 rounded-card bg-blush p-5">
 							<span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-coral text-white">
 								<svg viewBox="0 0 24 24" className="size-6" fill="none" aria-hidden>
-									<path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="animate-check" />
+									<path
+										d="M5 12.5l4.5 4.5L19 7.5"
+										stroke="currentColor"
+										strokeWidth="2.4"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="animate-check"
+									/>
 								</svg>
 							</span>
 							<div className="min-w-0">
@@ -127,8 +175,13 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 							</div>
 						</div>
 						{phase.funded === false && (
-							<Notice tone="warning" title="This account isn't on Testnet yet" action={<FundTestnetButton address={phase.address} onFunded={() => setPhase({ ...phase, funded: true })} />}>
-								Stellar accounts need a few test XLM before they can sign transactions. Friendbot sends 10,000 Testnet XLM (no real value).
+							<Notice
+								tone="warning"
+								title="This account isn't on Testnet yet"
+								action={<FundTestnetButton address={phase.address} onFunded={() => setPhase({ ...phase, funded: true })} />}
+							>
+								Stellar accounts need a few test XLM before they can sign transactions. Friendbot sends 10,000 Testnet XLM (no
+								real value).
 							</Notice>
 						)}
 						<Button onClick={finish} className="w-fit" autoFocus>
@@ -143,14 +196,68 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 									Install a supported wallet, then return here to connect. No wallet is connected yet.
 								</Notice>
 							)}
+							{extensionMissing && phase.name === "idle" && (
+								<Notice
+									tone="info"
+									title="Varial isn't installed in this browser"
+									action={
+										<Button asChild size="sm">
+											<a href={VARIAL_STORES.extension} target="_blank" rel="noreferrer">
+												Install Varial <ArrowUpRight />
+											</a>
+										</Button>
+									}
+								>
+									Install the Varial extension (formerly Freighter), then reload this page. Or connect the Varial app on your
+									phone with a QR code: Varial Mobile below.
+								</Notice>
+							)}
+							{phase.name === "connecting" && viaApp && !appMissing && (
+								<Notice tone="info" title="Opening Varial">
+									Approve the connection in the Varial app, then come back to this tab to sign in.
+								</Notice>
+							)}
+							{phase.name === "connecting" && appMissing && (
+								<Notice
+									tone="warning"
+									title="Didn't open Varial?"
+									action={
+										<div className="flex flex-wrap gap-2">
+											<Button asChild size="sm">
+												<a href={varialAppStoreUrl(platform)} target="_blank" rel="noreferrer">
+													Install Varial <ArrowUpRight />
+												</a>
+											</Button>
+											<Button size="sm" variant="outline" onClick={appMissing.retry}>
+												Open Varial again
+											</Button>
+										</div>
+									}
+								>
+									Varial may not be installed on this phone. Get it from {storeName}, set it to Testnet, then come back and
+									connect.
+								</Notice>
+							)}
 							{phase.name === "signing" && (
-								<Notice tone="info" title={`Sign in with ${walletName}`}>
-									Approve the sign-in message in your wallet. It proves you own {shortKey(phase.address)}; no transaction is sent and nothing is charged.
+								<Notice
+									tone="info"
+									title={`Sign in with ${walletName}`}
+									action={
+										viaApp ? (
+											<Button size="sm" variant="outline" onClick={() => void openWalletApp()}>
+												Open Varial <ExternalLink />
+											</Button>
+										) : undefined
+									}
+								>
+									Approve the sign-in message {viaApp ? "in the Varial app" : "in your wallet"}. It proves you own{" "}
+									{shortKey(phase.address)}; no transaction is sent and nothing is charged.
 								</Notice>
 							)}
 							{phase.name === "rejected" && (
 								<Notice tone="error" title="Request declined">
-									You declined in {walletName}. You&apos;re not signed in and no funds moved. Try again and approve in your wallet.
+									You declined in {walletName}. You&apos;re not signed in and no funds moved. Try again and approve in your
+									wallet.
 								</Notice>
 							)}
 							{phase.name === "failed" && (
@@ -194,7 +301,12 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 											{busy && selected === wallet.id ? (
 												<Spinner className="text-coral" />
 											) : !wallet.available ? (
-												<a href={INSTALL_URL[wallet.id]} target="_blank" rel="noreferrer" className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-blush px-3 text-xs hover:bg-rose">
+												<a
+													href={wallet.installUrl}
+													target="_blank"
+													rel="noreferrer"
+													className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-blush px-3 text-xs hover:bg-rose"
+												>
 													Install <ArrowUpRight className="size-3" aria-hidden />
 												</a>
 											) : busy ? (
@@ -217,28 +329,42 @@ export function ConnectModal({ open, resume }: { open: boolean; resume?: { addre
 						<div className="mt-8 flex flex-col gap-3">
 							{noneDetected && !resume ? (
 								<Button asChild className="w-fit">
-									<a href={INSTALL_URL.freighter} target="_blank" rel="noreferrer">
-										Install Freighter
+									<a href={onPhone ? varialAppStoreUrl(platform) : VARIAL_STORES.extension} target="_blank" rel="noreferrer">
+										Install Varial
 									</a>
 								</Button>
 							) : (
-								<Button
-									onClick={start}
-									isLoading={busy}
-									loadingText={phase.name === "signing" ? "Waiting for signature…" : `Connecting ${walletName}…`}
-									disabled={!resume && !current?.available}
-									className="w-fit"
-								>
-									{resume || ("address" in phase && phase.address) ? <KeyRound /> : null}
-									{resume || ((phase.name === "rejected" || phase.name === "failed") && phase.address) ? `Sign in with ${walletName}` : `Connect ${walletName}`}
-								</Button>
+								<div className="flex flex-wrap items-center gap-3">
+									<Button
+										onClick={start}
+										isLoading={busy}
+										loadingText={phase.name === "signing" ? "Waiting for signature…" : `Connecting ${walletName}…`}
+										disabled={!resume && !current?.available}
+										className="w-fit"
+									>
+										{resume || ("address" in phase && phase.address) ? <KeyRound /> : null}
+										{resume || ((phase.name === "rejected" || phase.name === "failed") && phase.address)
+											? `Sign in with ${walletName}`
+											: `Connect ${walletName}`}
+									</Button>
+									{phase.name === "connecting" && viaApp && (
+										<Button variant="ghost" onClick={cancel}>
+											Cancel
+										</Button>
+									)}
+								</div>
 							)}
 							{selected === "freighter" && !resume && phase.name === "idle" && current?.available && (
-								<p className="caption">Set Freighter to Testnet first (Freighter → Settings → Network). You&apos;ll be asked to approve access, then sign a free sign-in message.</p>
+								<p className="caption">
+									Set Varial to Testnet first (Varial → Settings → Network). You&apos;ll be asked to approve access, then sign a
+									free sign-in message.
+								</p>
 							)}
 							{selected === "wallet_connect" && !resume && phase.name === "idle" && current?.available && (
 								<p className="caption">
-									Set the Freighter app to Testnet first. On a computer, scan the QR code with Freighter Mobile; on your phone, pick Freighter. Approve the connection, then sign a free sign-in message.
+									{onPhone
+										? "Set the Varial app to Testnet first. Stackly opens Varial: approve the connection, come back to this tab, then approve a free sign-in message."
+										: "Set the Varial app to Testnet first. Scan the QR code with the Varial app on your phone, approve the connection, then sign a free sign-in message."}
 								</p>
 							)}
 						</div>

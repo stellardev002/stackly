@@ -5,12 +5,20 @@ import { withBasePath } from "@/lib/site";
 
 /**
  * Wallet brand marks (Figma "Wallet choice"). The design reuses Freighter's mark for xBull, so xBull gets a neutral
- * lettermark rather than another brand's logo; Freighter Mobile (WalletConnect) uses Freighter's; the demo wallet uses the Stackly mark.
+ * lettermark rather than another brand's logo; Varial (the extension and Varial Mobile) uses Varial's; the demo wallet uses the Stackly mark.
  */
 export function WalletIcon({ id, className }: { id: string; className?: string }) {
 	if (id === "freighter" || id === "wallet_connect" || id === "albedo") {
-		const file = id === "wallet_connect" ? "freighter" : id;
-		return <Image src={withBasePath(`/images/wallet-${file}.svg`)} alt="" width={40} height={40} className={cn("size-10 shrink-0 rounded-full", className)} />;
+		const file = id === "albedo" ? "albedo" : "varial";
+		return (
+			<Image
+				src={withBasePath(`/images/wallet-${file}.svg`)}
+				alt=""
+				width={40}
+				height={40}
+				className={cn("size-10 shrink-0 rounded-full", className)}
+			/>
+		);
 	}
 	if (id === "demo") {
 		return (
@@ -20,7 +28,13 @@ export function WalletIcon({ id, className }: { id: string; className?: string }
 		);
 	}
 	return (
-		<span aria-hidden className={cn("flex size-10 shrink-0 items-center justify-center rounded-full bg-night text-sm tracking-[-0.04em] text-white", className)}>
+		<span
+			aria-hidden
+			className={cn(
+				"flex size-10 shrink-0 items-center justify-center rounded-full bg-night text-sm tracking-[-0.04em] text-white",
+				className,
+			)}
+		>
 			xB
 		</span>
 	);
